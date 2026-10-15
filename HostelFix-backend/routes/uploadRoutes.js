@@ -2,7 +2,7 @@ const express = require("express")
 const router = express.Router()
 const upload = require("../middleware/upload")
 const { authenticate } = require("../middleware/auth")
-const { authorizeRoles } = require("../middleware/rbac")
+const { authorizeRoles, canAccessComplaint } = require("../middleware/rbac")
 const { processAndUploadImage, findDuplicateImagesInScope } = require("../services/imageService")
 const Complaint = require("../models/Complaint")
 const { ROLES } = require("../config/constants")
@@ -88,6 +88,13 @@ router.post(
       const complaint = await Complaint.findOne(query)
       if (!complaint) {
         return res.status(404).json({ success: false, message: "Complaint not found" })
+      }
+
+      if (!canAccessComplaint(req.user, complaint)) {
+        return res.status(403).json({
+          success: false,
+          message: "Forbidden: You are not authorized to upload resolution evidence for this complaint",
+        })
       }
 
       if (!req.files || req.files.length === 0) {

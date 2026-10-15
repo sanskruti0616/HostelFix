@@ -7,9 +7,27 @@ const ROLES = {
   WARDEN: "warden",
   STAFF: "staff",
   ADMIN: "admin",
+  PLATFORM_ADMIN: "platform_admin",
 }
 
 const ALL_ROLES = Object.values(ROLES)
+
+const TENANT_STATUS = {
+  ACTIVE: "active",
+  PENDING_APPROVAL: "pending_approval",
+  SUSPENDED: "suspended",
+}
+
+const ALL_TENANT_STATUSES = Object.values(TENANT_STATUS)
+
+const USER_STATUS = {
+  ACTIVE: "active",
+  PENDING_AFFILIATION: "pending_affiliation",
+  PENDING_APPROVAL: "pending_approval",
+  SUSPENDED: "suspended",
+}
+
+const ALL_USER_STATUSES = Object.values(USER_STATUS)
 
 const COMPLAINT_STATUS = {
   SUBMITTED: "submitted",
@@ -127,11 +145,20 @@ const STATUS_TRANSITIONS = {
     acc[status] = ALL_STATUSES.filter((s) => s !== status)
     return acc
   }, {}),
+  // Platform Admin has full cross-tenant control
+  [ROLES.PLATFORM_ADMIN]: ALL_STATUSES.reduce((acc, status) => {
+    acc[status] = ALL_STATUSES.filter((s) => s !== status)
+    return acc
+  }, {}),
 }
 
 module.exports = {
   ROLES,
   ALL_ROLES,
+  TENANT_STATUS,
+  ALL_TENANT_STATUSES,
+  USER_STATUS,
+  ALL_USER_STATUSES,
   COMPLAINT_STATUS,
   ALL_STATUSES,
   COMPLAINT_PRIORITY,

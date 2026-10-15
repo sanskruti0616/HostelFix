@@ -205,7 +205,11 @@ Provide an assessment formatted strictly as JSON with the following keys:
       }
     }
 
-    const result = await model.generateContent(parts)
+    const generatePromise = model.generateContent(parts)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Gemini API request timed out after 8 seconds")), 8000)
+    )
+    const result = await Promise.race([generatePromise, timeoutPromise])
     const responseText = result.response.text()
     const jsonMatch = responseText.match(/\{[\s\S]*\}/)
     if (jsonMatch) {

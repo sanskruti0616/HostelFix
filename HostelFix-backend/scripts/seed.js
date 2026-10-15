@@ -1,4 +1,5 @@
 const { connectDB, disconnectDB } = require("../config/db")
+const Organization = require("../models/Organization")
 const User = require("../models/User")
 const Hostel = require("../models/Hostel")
 const Room = require("../models/Room")
@@ -11,15 +12,36 @@ async function seed() {
   console.log("[Seed] Starting development database seed...")
   await connectDB()
 
+  // 0. Seed Demo Organization
+  const demoOrg = await Organization.findOneAndUpdate(
+    { slug: "demo-campus" },
+    {
+      name: "Demo Hostel Campus",
+      slug: "demo-campus",
+      invitationCode: "DEMO2026",
+      contactEmail: "demo@hostelfix.com",
+      phone: "+91 90000 00000",
+      address: "Demo University Grounds",
+      city: "Mumbai",
+      state: "Maharashtra",
+      status: "active",
+      plan: "standard",
+    },
+    { upsert: true, new: true }
+  )
+  console.log(`[Seed] Demo Organization verified: ${demoOrg.name} (${demoOrg.invitationCode})`)
+
   // 1. Seed Hostels
   const hostelsData = [
     {
+      organizationId: demoOrg._id,
       name: "Girls Hostel A",
       code: "GHA",
       address: "North Campus, Sector 4",
       contactInformation: { wardenName: "Priya Sharma", phone: "9876543201", email: "warden@hostelfix.com" },
     },
     {
+      organizationId: demoOrg._id,
       name: "Boys Hostel B",
       code: "BHB",
       address: "South Campus, Sector 9",
@@ -67,8 +89,11 @@ async function seed() {
       email: "sanskruti@hostelfix.com",
       username: "student",
       role: ROLES.STUDENT,
+      organizationId: demoOrg._id,
+      organizationName: demoOrg.name,
       hostelId: primaryHostel._id,
       hostelName: primaryHostel.name,
+      authorizedHostels: [primaryHostel._id],
       roomNumber: "A-204",
       phone: "9876543210",
       accountStatus: "active",
@@ -82,8 +107,11 @@ async function seed() {
       email: "warden@hostelfix.com",
       username: "warden",
       role: ROLES.WARDEN,
+      organizationId: demoOrg._id,
+      organizationName: demoOrg.name,
       hostelId: primaryHostel._id,
       hostelName: primaryHostel.name,
+      authorizedHostels: [primaryHostel._id],
       phone: "9876543201",
       accountStatus: "active",
       authenticationProvider: "local",
@@ -96,6 +124,9 @@ async function seed() {
       email: "vaishnavi@hostelfix.com",
       username: "staff",
       role: ROLES.STAFF,
+      organizationId: demoOrg._id,
+      organizationName: demoOrg.name,
+      authorizedHostels: hostels.map((h) => h._id),
       phone: "9876543211",
       accountStatus: "active",
       authenticationProvider: "local",
@@ -108,6 +139,9 @@ async function seed() {
       email: "bhargavi@hostelfix.com",
       username: "bhargavi",
       role: ROLES.STAFF,
+      organizationId: demoOrg._id,
+      organizationName: demoOrg.name,
+      authorizedHostels: hostels.map((h) => h._id),
       phone: "9876543212",
       accountStatus: "active",
       authenticationProvider: "local",
@@ -120,6 +154,9 @@ async function seed() {
       email: "bhavesh@hostelfix.com",
       username: "bhavesh",
       role: ROLES.STAFF,
+      organizationId: demoOrg._id,
+      organizationName: demoOrg.name,
+      authorizedHostels: hostels.map((h) => h._id),
       phone: "9876543213",
       accountStatus: "active",
       authenticationProvider: "local",
@@ -132,6 +169,9 @@ async function seed() {
       email: "ruturaj@hostelfix.com",
       username: "ruturaj",
       role: ROLES.STAFF,
+      organizationId: demoOrg._id,
+      organizationName: demoOrg.name,
+      authorizedHostels: hostels.map((h) => h._id),
       phone: "9876543214",
       accountStatus: "active",
       authenticationProvider: "local",
@@ -144,6 +184,9 @@ async function seed() {
       email: "admin@hostelfix.com",
       username: "admin",
       role: ROLES.ADMIN,
+      organizationId: demoOrg._id,
+      organizationName: demoOrg.name,
+      authorizedHostels: hostels.map((h) => h._id),
       phone: "9876543200",
       accountStatus: "active",
       authenticationProvider: "local",
@@ -175,6 +218,8 @@ async function seed() {
     const initialComplaints = [
       {
         complaintNumber: "HF-1001",
+        organizationId: demoOrg._id,
+        organizationName: demoOrg.name,
         createdBy: studentUser._id,
         studentName: studentUser.name,
         studentEmail: studentUser.email,
@@ -191,6 +236,8 @@ async function seed() {
       },
       {
         complaintNumber: "HF-1002",
+        organizationId: demoOrg._id,
+        organizationName: demoOrg.name,
         createdBy: studentUser._id,
         studentName: studentUser.name,
         studentEmail: studentUser.email,
@@ -207,6 +254,8 @@ async function seed() {
       },
       {
         complaintNumber: "HF-1003",
+        organizationId: demoOrg._id,
+        organizationName: demoOrg.name,
         createdBy: studentUser._id,
         studentName: studentUser.name,
         studentEmail: studentUser.email,

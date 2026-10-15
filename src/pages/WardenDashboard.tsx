@@ -102,7 +102,9 @@ export default function WardenDashboard({
           </div>
           <div>
             <h2>HostelFix</h2>
-            <span>Warden Portal · {currentUser.hostel || "All Hostels"}</span>
+            <span>
+              Warden Portal · {currentUser.organizationName ? `${currentUser.organizationName} · ` : ""}{currentUser.hostel || "All Hostels"}
+            </span>
           </div>
         </div>
 

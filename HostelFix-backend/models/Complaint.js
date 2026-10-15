@@ -56,6 +56,17 @@ const complaintSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    organizationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      default: null,
+      index: true,
+    },
+    organizationName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     hostelId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Hostel",
@@ -165,6 +176,9 @@ const complaintSchema = new mongoose.Schema(
 )
 
 // Composite and search indexes
+complaintSchema.index({ organizationId: 1, createdAt: -1 })
+complaintSchema.index({ organizationId: 1, status: 1 })
+complaintSchema.index({ organizationId: 1, hostelId: 1 })
 complaintSchema.index({ createdBy: 1, createdAt: -1 })
 complaintSchema.index({ hostelId: 1, status: 1 })
 complaintSchema.index({ "assignedTo.staffId": 1, status: 1 })

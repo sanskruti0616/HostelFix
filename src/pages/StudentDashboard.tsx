@@ -119,7 +119,9 @@ export default function StudentDashboard({
             </div>
             <div>
               <strong>{currentUser.name}</strong>
-              <span>Student</span>
+              <span>
+                Student {currentUser.organizationName ? `• ${currentUser.organizationName}` : ""}
+              </span>
             </div>
           </div>
 
@@ -138,6 +140,7 @@ export default function StudentDashboard({
               Welcome back, {currentUser.name.split(" ")[0]} 👋
             </h2>
             <p>
+              {currentUser.organizationName && <span style={{ fontWeight: 600, color: "var(--primary)" }}>{currentUser.organizationName} · </span>}
               {currentUser.hostel || "Main Hostel"} · Room {currentUser.room || "Assigned"}
             </p>
           </div>

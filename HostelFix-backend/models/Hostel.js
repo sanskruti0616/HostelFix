@@ -2,17 +2,21 @@ const mongoose = require("mongoose")
 
 const hostelSchema = new mongoose.Schema(
   {
+    organizationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      default: null,
+      index: true,
+    },
     name: {
       type: String,
       required: [true, "Hostel name is required"],
-      unique: true,
       trim: true,
       maxlength: 100,
     },
     code: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       uppercase: true,
     },
@@ -36,5 +40,8 @@ const hostelSchema = new mongoose.Schema(
     timestamps: true,
   }
 )
+
+hostelSchema.index({ organizationId: 1, code: 1 })
+hostelSchema.index({ organizationId: 1, name: 1 })
 
 module.exports = mongoose.model("Hostel", hostelSchema)

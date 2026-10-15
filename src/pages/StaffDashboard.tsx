@@ -212,7 +212,9 @@ export default function StaffDashboard({
           </div>
           <div>
             <h2>HostelFix</h2>
-            <span>Maintenance Staff Portal</span>
+            <span>
+              Maintenance Staff Portal {currentUser.organizationName ? `· ${currentUser.organizationName}` : ""}
+            </span>
           </div>
         </div>
 

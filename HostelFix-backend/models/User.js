@@ -54,9 +54,31 @@ const userSchema = new mongoose.Schema(
     },
     accountStatus: {
       type: String,
-      enum: ["active", "pending", "suspended"],
+      enum: ["active", "pending_affiliation", "pending_approval", "pending", "suspended"],
       default: "active",
       required: true,
+    },
+    organizationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      default: null,
+      index: true,
+    },
+    organizationName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    authorizedHostels: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Hostel",
+      },
+    ],
+    invitationCodeUsed: {
+      type: String,
+      default: "",
+      trim: true,
     },
     hostelId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -95,6 +117,7 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ authenticationProvider: 1, providerUserId: 1 }, { unique: true })
 userSchema.index({ role: 1 })
+userSchema.index({ organizationId: 1, role: 1 })
 userSchema.index({ hostelId: 1 })
 
 module.exports = mongoose.model("User", userSchema)

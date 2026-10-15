@@ -108,7 +108,9 @@ export default function AdminDashboard({
           </div>
           <div>
             <h1 className="dashboard-title">HostelFix</h1>
-            <p className="dashboard-subtitle">Administrator Control Center</p>
+            <p className="dashboard-subtitle">
+              Administrator Control Center {currentUser.organizationName ? `· ${currentUser.organizationName}` : ""}
+            </p>
           </div>
         </div>
 

@@ -22,6 +22,8 @@ import { api } from "../services/api"
 
 interface LoginProps {
   onLoginSuccess: (user: User) => void
+  onNavigateHome?: () => void
+  onNavigateSignUp?: () => void
 }
 
 interface DemoRoleCard {
@@ -63,7 +65,11 @@ const DEMO_ROLES: DemoRoleCard[] = [
   },
 ]
 
-export default function Login({ onLoginSuccess }: LoginProps) {
+export default function Login({
+  onLoginSuccess,
+  onNavigateHome,
+  onNavigateSignUp,
+}: LoginProps) {
   // Manual credentials form state
   const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
@@ -253,6 +259,56 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         {/* RIGHT SECTION: AUTHENTICATION FORM                        */}
         {/* ========================================================= */}
         <main className="login-card" aria-label="Sign In">
+          {/* Top navigation actions */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: "16px",
+              fontSize: "13px",
+            }}
+          >
+            {onNavigateHome ? (
+              <button
+                type="button"
+                onClick={onNavigateHome}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#64748b",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  padding: 0,
+                }}
+              >
+                <span>← Home</span>
+              </button>
+            ) : (
+              <span />
+            )}
+
+            {onNavigateSignUp && (
+              <button
+                type="button"
+                onClick={onNavigateSignUp}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#4f46e5",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Create Account →
+              </button>
+            )}
+          </div>
+
           <div className="mobile-logo">
             <div className="brand-logo" style={{ margin: "0 auto 12px" }}>
               <Home size={28} />
@@ -262,7 +318,29 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
           <div className="login-card-header">
             <h2>Welcome to HostelFix</h2>
-            <p>Sign in to manage and track hostel services</p>
+            <p>
+              Sign in to manage and track hostel services.{" "}
+              {onNavigateSignUp && (
+                <span style={{ display: "block", marginTop: "4px" }}>
+                  New here?{" "}
+                  <button
+                    type="button"
+                    onClick={onNavigateSignUp}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#4f46e5",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      padding: 0,
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Register your account
+                  </button>
+                </span>
+              )}
+            </p>
           </div>
 
           {/* Feedback Alerts */}

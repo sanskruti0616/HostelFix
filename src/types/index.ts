@@ -35,17 +35,38 @@ export type ComplaintCategory =
   | "Security"
   | "Other"
 
+export interface Organization {
+  id: string
+  name: string
+  slug: string
+  invitationCode: string
+  contactEmail: string
+  phone?: string
+  address?: string
+  city?: string
+  state?: string
+  status: "active" | "suspended" | "pending_setup"
+  plan?: string
+  hostels?: { id: string; name: string; code?: string }[]
+  createdAt?: string
+}
+
 export interface User {
   id: string
   name: string
   email: string
   username?: string
   role: UserRole
+  organizationId?: string
+  organizationName?: string
+  hostelId?: string
   hostel?: string
+  authorizedHostels?: string[]
   room?: string
   phone?: string
   profileImage?: string
-  accountStatus?: "active" | "pending" | "suspended"
+  accountStatus?: "active" | "pending" | "suspended" | "pending_affiliation"
+  invitationCodeUsed?: string
 }
 
 export interface EvidenceImage {
@@ -96,9 +117,12 @@ export interface VerificationDetails {
 export interface Complaint {
   id: string
   mongoId?: string
+  organizationId?: string
+  organizationName?: string
   studentId: string
   studentName: string
   studentEmail?: string
+  hostelId?: string
   hostel: string
   room: string
   title: string

@@ -5,6 +5,7 @@ import type {
   ComplaintPriority,
   NotificationItem,
   User,
+  Organization,
   ComplaintUpdate,
 } from "../types"
 
@@ -173,8 +174,102 @@ export const api = {
       })
     },
 
+    async registerOrganization(payload: {
+      name: string
+      slug: string
+      contactEmail: string
+      phone?: string
+      address?: string
+      city?: string
+      state?: string
+      adminName: string
+      adminPassword: string
+    }) {
+      const data = await request<{
+        success: boolean
+        message: string
+        organization: Organization
+        user: User
+        token: string
+      }>("/api/auth/register-organization", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      setStoredAuth(data.token, data.user)
+      return data
+    },
+
+    async registerStudent(payload: {
+      name: string
+      email: string
+      password: string
+      invitationCode?: string
+      organizationId?: string
+      hostelId?: string
+      hostelName?: string
+      room?: string
+      phone?: string
+    }) {
+      const data = await request<{
+        success: boolean
+        message: string
+        user: User
+        token: string
+      }>("/api/auth/register-student", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      setStoredAuth(data.token, data.user)
+      return data
+    },
+
+    async affiliate(payload: {
+      invitationCode?: string
+      organizationId?: string
+      hostelId?: string
+      hostelName?: string
+      room?: string
+    }) {
+      const data = await request<{
+        success: boolean
+        message: string
+        user: User
+        token?: string
+      }>("/api/auth/affiliate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      if (data.token) {
+        setStoredAuth(data.token, data.user)
+      } else {
+        const currentToken = getStoredToken()
+        if (currentToken) setStoredAuth(currentToken, data.user)
+      }
+      return data
+    },
+
     logout() {
       clearStoredAuth()
+    },
+  },
+
+  // ===================================================
+  // TENANTS / ORGANIZATIONS
+  // ===================================================
+  tenants: {
+    async getPublicList() {
+      return request<{
+        success: boolean
+        organizations: Organization[]
+      }>("/api/auth/tenants/public")
+    },
+
+    async verifyInvitationCode(code: string) {
+      return request<{
+        success: boolean
+        organization: Organization
+        hostels: { id: string; name: string; code?: string }[]
+      }>(`/api/auth/tenants/verify-code/${encodeURIComponent(code)}`)
     },
   },
 

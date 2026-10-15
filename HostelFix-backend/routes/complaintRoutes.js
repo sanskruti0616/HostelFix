@@ -46,6 +46,9 @@ function formatComplaint(c) {
     studentId: c.createdBy?._id || c.createdBy,
     studentName: c.studentName || "Student",
     studentEmail: c.studentEmail || "",
+    organizationId: c.organizationId ? c.organizationId.toString() : undefined,
+    organizationName: c.organizationName || "",
+    hostelId: c.hostelId ? c.hostelId.toString() : undefined,
     hostel: c.hostelName || "",
     room: c.roomNumber || "",
     title: c.title,
@@ -91,14 +94,33 @@ router.get("/complaints", authenticate, async (req, res) => {
 
     const filter = {}
 
-    // Role-based scope enforcement
+    // 1. Strict Tenant Isolation
+    if (req.user.role !== ROLES.PLATFORM_ADMIN) {
+      if (req.user.organizationId) {
+        filter.organizationId = req.user.organizationId
+      }
+    } else if (req.query.organizationId) {
+      filter.organizationId = req.query.organizationId
+    }
+
+    // 2. Role-based scope enforcement
     if (req.user.role === ROLES.STUDENT) {
       filter.createdBy = req.user._id
     } else if (req.user.role === ROLES.STAFF) {
       filter["assignedTo.staffId"] = req.user._id
     } else if (req.user.role === ROLES.WARDEN) {
-      if (req.user.hostelName) {
-        filter.hostelName = req.user.hostelName
+      if (req.user.authorizedHostels && req.user.authorizedHostels.length > 0) {
+        filter.$or = [
+          { hostelId: { $in: req.user.authorizedHostels } },
+          { hostelName: { $regex: new RegExp(`^${(req.user.hostelName || "").trim()}$`, "i") } },
+        ]
+      } else if (req.user.hostelId) {
+        filter.$or = [
+          { hostelId: req.user.hostelId },
+          { hostelName: { $regex: new RegExp(`^${(req.user.hostelName || "").trim()}$`, "i") } },
+        ]
+      } else if (req.user.hostelName) {
+        filter.hostelName = { $regex: new RegExp(`^${req.user.hostelName.trim()}$`, "i") }
       }
     }
 
@@ -153,8 +175,15 @@ router.get("/complaints", authenticate, async (req, res) => {
 router.get("/complaints/export/csv", authenticate, authorizeRoles(ROLES.WARDEN, ROLES.ADMIN), async (req, res) => {
   try {
     const filter = {}
-    if (req.user.role === ROLES.WARDEN && req.user.hostelName) {
-      filter.hostelName = req.user.hostelName
+    if (req.user.role !== ROLES.PLATFORM_ADMIN && req.user.organizationId) {
+      filter.organizationId = req.user.organizationId
+    }
+    if (req.user.role === ROLES.WARDEN) {
+      if (req.user.hostelId) {
+        filter.hostelId = req.user.hostelId
+      } else if (req.user.hostelName) {
+        filter.hostelName = req.user.hostelName
+      }
     }
 
     const complaints = await Complaint.find(filter).sort({ createdAt: -1 }).lean()
@@ -289,9 +318,35 @@ router.post("/complaints", authenticate, authorizeRoles(ROLES.STUDENT, ROLES.ADM
       })
     }
 
+    if (!req.user.organizationId || req.user.accountStatus === "pending_affiliation") {
+      return res.status(403).json({
+        success: false,
+        code: "PENDING_AFFILIATION",
+        message: "You must be affiliated with an active hostel organization before submitting complaints.",
+      })
+    }
+
     const finalPriority = priority && ALL_PRIORITIES.includes(priority) ? priority : "medium"
-    const finalHostel = hostel || req.user.hostelName || "Hostel A"
+    const organizationId = req.user.organizationId
+    const organizationName = req.user.organizationName || ""
+    let hostelId = req.user.hostelId || null
+    let hostelName = req.user.hostelName || hostel || "Main Hostel"
     const finalRoom = room || req.user.roomNumber || "101"
+
+    if (hostel && organizationId && !hostelId) {
+      const Hostel = require("../models/Hostel")
+      const matched = await Hostel.findOne({
+        organizationId,
+        $or: [
+          { name: { $regex: new RegExp(`^${hostel.trim()}$`, "i") } },
+          { code: hostel.trim().toUpperCase() },
+        ],
+      })
+      if (matched) {
+        hostelId = matched._id
+        hostelName = matched.name
+      }
+    }
 
     const complaintNumber = await generateNextComplaintNumber()
 
@@ -301,7 +356,10 @@ router.post("/complaints", authenticate, authorizeRoles(ROLES.STUDENT, ROLES.ADM
       createdBy: req.user._id,
       studentName: req.user.name,
       studentEmail: req.user.email,
-      hostelName: finalHostel.trim(),
+      organizationId,
+      organizationName,
+      hostelId,
+      hostelName: hostelName.trim(),
       roomNumber: finalRoom.trim(),
       title: title.trim(),
       description: description.trim(),

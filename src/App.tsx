@@ -1,5 +1,8 @@
 import { useEffect, useState, useCallback } from "react"
+import LandingPage from "./pages/LandingPage"
 import Login from "./pages/Login"
+import SignUp from "./pages/SignUp"
+import AffiliationOnboarding from "./pages/AffiliationOnboarding"
 import StudentDashboard from "./pages/StudentDashboard"
 import WardenDashboard from "./pages/WardenDashboard"
 import StaffDashboard from "./pages/StaffDashboard"
@@ -14,6 +17,7 @@ import { getSocket, updateSocketAuth, disconnectSocket } from "./services/socket
 import { CheckCircle, AlertCircle, Info, X } from "lucide-react"
 
 type StudentPage = "dashboard" | "raise-complaint" | "history" | "details"
+type UnauthView = "landing" | "login" | "signup"
 
 interface ToastNotification {
   id: string
@@ -24,6 +28,8 @@ interface ToastNotification {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(getStoredUser())
+  const [unauthView, setUnauthView] = useState<UnauthView>("landing")
+  const [signUpInitialTab, setSignUpInitialTab] = useState<"student" | "organization">("student")
   const [studentPage, setStudentPage] = useState<StudentPage>("dashboard")
   const [complaintList, setComplaintList] = useState<Complaint[]>([])
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null)
@@ -146,6 +152,7 @@ export default function App() {
     setComplaintList([])
     setSelectedComplaint(null)
     setStudentPage("dashboard")
+    setUnauthView("landing")
   }
 
   // 6. Handle Complaint Submission
@@ -204,9 +211,63 @@ export default function App() {
     )
   }
 
-  // Unauthenticated: Render Login Page
+  // Unauthenticated routing: Landing Page, Login, or Sign Up
   if (!currentUser) {
-    return <Login onLoginSuccess={handleLoginSuccess} />
+    if (unauthView === "login") {
+      return (
+        <Login
+          onLoginSuccess={handleLoginSuccess}
+          onNavigateHome={() => setUnauthView("landing")}
+          onNavigateSignUp={() => {
+            setSignUpInitialTab("student")
+            setUnauthView("signup")
+          }}
+        />
+      )
+    }
+
+    if (unauthView === "signup") {
+      return (
+        <SignUp
+          initialTab={signUpInitialTab}
+          onNavigateHome={() => setUnauthView("landing")}
+          onNavigateLogin={() => setUnauthView("login")}
+          onSignUpSuccess={handleLoginSuccess}
+        />
+      )
+    }
+
+    // Default unauthenticated view: Public SaaS Landing Page
+    return (
+      <LandingPage
+        onNavigateLogin={() => setUnauthView("login")}
+        onNavigateSignUp={(tab) => {
+          setSignUpInitialTab(tab || "student")
+          setUnauthView("signup")
+        }}
+      />
+    )
+  }
+
+  // Pending Hostel Affiliation (e.g. Google sign-in without pre-affiliation)
+  if (
+    currentUser.accountStatus === "pending_affiliation" ||
+    (currentUser.role === "student" && !currentUser.organizationId)
+  ) {
+    return (
+      <AffiliationOnboarding
+        currentUser={currentUser}
+        onAffiliationComplete={(updated) => {
+          setCurrentUser(updated)
+          addToast(
+            "Affiliation Complete",
+            `Connected to ${updated.organizationName || "your hostel"}!`,
+            "success"
+          )
+        }}
+        onLogout={handleLogout}
+      />
+    )
   }
 
   // Role: STUDENT
