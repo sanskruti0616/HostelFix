@@ -1,14 +1,28 @@
 const mongoose = require("mongoose")
-require("dotenv").config()
+require("./loadEnv")
 
 let isConnected = false
+
+function sanitizeMongoUri(rawUri) {
+  if (!rawUri || typeof rawUri !== "string") return rawUri
+  // Remove accidental angle brackets from <username>:<password> if user copy-pasted template
+  return rawUri.replace(
+    /^(mongodb(?:\+srv)?:\/\/)(<([^:>]+)>|([^:>]+)):(<([^@]+)>|([^@]+))@/i,
+    (match, proto, u1, u2, u3, p1, p2, p3) => {
+      const user = (u2 || u3 || "").trim()
+      const pass = (p2 || p3 || "").trim()
+      return `${proto}${user}:${pass}@`
+    }
+  )
+}
 
 async function connectDB(customUri) {
   if (isConnected && mongoose.connection.readyState === 1) {
     return mongoose.connection
   }
 
-  const uri = customUri || process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/hostelfix"
+  const rawUri = customUri || process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/hostelfix"
+  const uri = sanitizeMongoUri(rawUri)
   const dbName = process.env.MONGODB_DATABASE || "hostelfix"
 
   try {

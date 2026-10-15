@@ -5,7 +5,7 @@ const Room = require("../models/Room")
 const Complaint = require("../models/Complaint")
 const ComplaintStatusHistory = require("../models/ComplaintStatusHistory")
 const { ROLES, COMPLAINT_STATUS } = require("../config/constants")
-require("dotenv").config()
+require("../config/loadEnv")
 
 async function seed() {
   console.log("[Seed] Starting development database seed...")

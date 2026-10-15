@@ -1,6 +1,6 @@
 const Complaint = require("../models/Complaint")
 const { findDuplicateImagesInScope } = require("./imageService")
-require("dotenv").config()
+require("../config/loadEnv")
 
 // Category keyword dictionary for Stage 2 consistency check
 const CATEGORY_KEYWORDS = {
@@ -173,7 +173,8 @@ async function runGeminiVisionAssessment(complaint, imageBuffers) {
   try {
     const { GoogleGenerativeAI } = require("@google/generative-ai")
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+    const modelName = process.env.GEMINI_MODEL || "gemini-3.8-flash"
+    const model = genAI.getGenerativeModel({ model: modelName })
 
     const prompt = `You are an AI assistant for a hostel maintenance complaint system.
 Analyze this complaint and the attached evidence:

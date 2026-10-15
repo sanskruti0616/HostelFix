@@ -2,7 +2,7 @@ const { OAuth2Client } = require("google-auth-library")
 const jwt = require("jsonwebtoken")
 const User = require("../models/User")
 const { ROLES } = require("../config/constants")
-require("dotenv").config()
+require("../config/loadEnv")
 
 const JWT_SECRET = process.env.JWT_SECRET || "hostelfix_super_secret_jwt_key_2026_change_in_prod"
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d"

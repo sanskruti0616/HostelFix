@@ -1,7 +1,7 @@
 const cloudinary = require("cloudinary").v2
 const path = require("path")
 const fs = require("fs")
-require("dotenv").config()
+require("./loadEnv")
 
 const hasCloudinaryCredentials = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
