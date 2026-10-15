@@ -1,96 +1,96 @@
-import React from "react"
-
+import { useState, useMemo } from "react"
 import {
-  BarChart3,
   Building2,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
   Clock3,
-  Filter,
+  Download,
   LogOut,
+  RefreshCw,
   Search,
   ShieldCheck,
-  Users,
+  Sparkles,
   Wrench,
-  XCircle,
 } from "lucide-react"
-
 import type {
   Complaint,
   ComplaintCategory,
   ComplaintPriority,
   ComplaintStatus,
+  User,
 } from "../types"
+import { api } from "../services/api"
 
 interface WardenDashboardProps {
+  currentUser: User
   complaints: Complaint[]
   onLogout: () => void
   onViewComplaint: (complaint: Complaint) => void
+  onRefresh?: () => void
 }
 
-function WardenDashboard({
+export default function WardenDashboard({
+  currentUser,
   complaints,
   onLogout,
   onViewComplaint,
+  onRefresh,
 }: WardenDashboardProps) {
-  const [searchTerm, setSearchTerm] = React.useState("")
-  const [statusFilter, setStatusFilter] =
-    React.useState<ComplaintStatus | "all">("all")
-  const [categoryFilter, setCategoryFilter] =
-    React.useState<ComplaintCategory | "all">("all")
-  const [priorityFilter, setPriorityFilter] =
-    React.useState<ComplaintPriority | "all">("all")
+  const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState<ComplaintStatus | "all">("all")
+  const [categoryFilter, setCategoryFilter] = useState<ComplaintCategory | "all">("all")
+  const [priorityFilter, setPriorityFilter] = useState<ComplaintPriority | "all">("all")
 
+  // Real database metrics computed from complaints
   const totalComplaints = complaints.length
 
-  const pendingComplaints = complaints.filter(
-    (complaint) =>
-      complaint.status === "submitted" ||
-      complaint.status === "assigned"
+  const awaitingVerification = complaints.filter(
+    (c) => c.status === "submitted" || c.status === "pending_verification"
+  ).length
+
+  const awaitingAssignment = complaints.filter(
+    (c) => c.status === "verified"
   ).length
 
   const inProgressComplaints = complaints.filter(
-    (complaint) => complaint.status === "in-progress"
+    (c) =>
+      c.status === "assigned" ||
+      c.status === "in-progress" ||
+      c.status === "need-material"
   ).length
 
   const resolvedComplaints = complaints.filter(
-    (complaint) => complaint.status === "resolved"
+    (c) => c.status === "resolved" || c.status === "closed"
   ).length
 
-  const filteredComplaints = complaints.filter(
-    (complaint) => {
+  // Filter complaints
+  const filteredComplaints = useMemo(() => {
+    return complaints.filter((complaint) => {
+      const term = searchTerm.toLowerCase().trim()
       const matchesSearch =
-        complaint.title
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        complaint.studentName
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        complaint.id
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase())
+        !term ||
+        complaint.title.toLowerCase().includes(term) ||
+        complaint.studentName.toLowerCase().includes(term) ||
+        complaint.id.toLowerCase().includes(term) ||
+        complaint.room.toLowerCase().includes(term)
 
       const matchesStatus =
-        statusFilter === "all" ||
-        complaint.status === statusFilter
+        statusFilter === "all" || complaint.status === statusFilter
 
       const matchesCategory =
-        categoryFilter === "all" ||
-        complaint.category === categoryFilter
+        categoryFilter === "all" || complaint.category === categoryFilter
 
       const matchesPriority =
-        priorityFilter === "all" ||
-        complaint.priority === priorityFilter
+        priorityFilter === "all" || complaint.priority === priorityFilter
 
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesCategory &&
-        matchesPriority
-      )
-    }
-  )
+      return matchesSearch && matchesStatus && matchesCategory && matchesPriority
+    })
+  }, [complaints, searchTerm, statusFilter, categoryFilter, priorityFilter])
+
+  const handleExportCsv = () => {
+    window.open(api.complaints.getExportCsvUrl(), "_blank")
+  }
 
   return (
     <div className="dashboard-page">
@@ -100,424 +100,336 @@ function WardenDashboard({
           <div className="brand-icon">
             <ShieldCheck size={22} />
           </div>
-
           <div>
             <h2>HostelFix</h2>
-            <span>Warden Portal</span>
+            <span>Warden Portal · {currentUser.hostel || "All Hostels"}</span>
           </div>
         </div>
 
         <div className="header-user">
-          <div className="user-avatar">
-            PS
-          </div>
-
-          <div className="header-user-info">
-            <strong>Priya Sharma</strong>
-            <span>Warden</span>
-          </div>
+          {onRefresh && (
+            <button
+              className="header-logout"
+              onClick={onRefresh}
+              title="Refresh"
+              style={{ marginRight: "12px" }}
+            >
+              <RefreshCw size={18} />
+            </button>
+          )}
 
           <button
             className="header-logout"
-            onClick={onLogout}
-            title="Logout"
+            onClick={handleExportCsv}
+            title="Export CSV"
+            style={{ marginRight: "12px" }}
           >
+            <Download size={18} />
+          </button>
+
+          <div className="user-avatar">
+            {currentUser.name ? currentUser.name.slice(0, 2).toUpperCase() : "WA"}
+          </div>
+
+          <div className="header-user-info">
+            <strong>{currentUser.name}</strong>
+            <span>Warden</span>
+          </div>
+
+          <button className="header-logout" onClick={onLogout} title="Logout">
             <LogOut size={19} />
           </button>
         </div>
       </header>
 
-      {/* Main */}
+      {/* Main Content */}
       <main className="dashboard-main">
+        {/* Welcome Section */}
         <section className="welcome-section">
           <div>
             <p className="eyebrow">
               <Building2 size={15} />
               WARDEN DASHBOARD
             </p>
-
-            <h1>
-              Good afternoon, Priya 👋
-            </h1>
-
+            <h1>Welcome, {currentUser.name} 👋</h1>
             <p>
-              Monitor and manage hostel complaints
-              from one place.
+              Monitor, verify, and assign maintenance issues in {currentUser.hostel || "your hostel scope"}.
             </p>
           </div>
 
-          <div className="welcome-date">
-            <ClipboardList size={18} />
-            <span>
-              {new Date().toLocaleDateString(
-                "en-IN",
-                {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                }
-              )}
-            </span>
+          <div className="welcome-date" style={{ display: "flex", gap: "10px" }}>
+            <button
+              onClick={handleExportCsv}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "8px 16px",
+                background: "white",
+                border: "1px solid #cbd5e1",
+                borderRadius: "8px",
+                fontWeight: 600,
+                fontSize: "14px",
+                cursor: "pointer",
+              }}
+            >
+              <Download size={16} /> Export Reports (CSV)
+            </button>
           </div>
         </section>
 
-        {/* Stats */}
+        {/* Stats Grid */}
         <section className="stats-grid">
-          <StatCard
-            icon={<ClipboardList size={22} />}
-            label="Total Complaints"
-            value={totalComplaints}
-            description="All complaints"
-          />
-
-          <StatCard
-            icon={<Clock3 size={22} />}
-            label="Pending"
-            value={pendingComplaints}
-            description="Awaiting action"
-          />
-
-          <StatCard
-            icon={<Wrench size={22} />}
-            label="In Progress"
-            value={inProgressComplaints}
-            description="Being worked on"
-          />
-
-          <StatCard
-            icon={<CheckCircle2 size={22} />}
-            label="Resolved"
-            value={resolvedComplaints}
-            description="Successfully closed"
-          />
-        </section>
-
-        {/* Complaint Management */}
-        <section className="complaints-section">
-          <div className="section-heading">
-            <div>
-              <h2>All Complaints</h2>
-              <p>
-                Review complaints raised by hostel
-                students.
-              </p>
+          <div className="stat-card">
+            <div className="stat-icon stat-total">
+              <ClipboardList size={22} />
             </div>
-
-            <div className="complaint-count">
-              <Users size={16} />
-              {filteredComplaints.length} complaints
+            <div>
+              <span className="stat-value">{totalComplaints}</span>
+              <span className="stat-label">Total in Scope</span>
             </div>
           </div>
 
-          {/* Filters */}
-          <div className="warden-filters">
-            <div className="search-box">
-              <Search size={18} />
+          <div className="stat-card">
+            <div className="stat-icon stat-pending">
+              <Sparkles size={22} />
+            </div>
+            <div>
+              <span className="stat-value">{awaitingVerification}</span>
+              <span className="stat-label">Needs Verification</span>
+            </div>
+          </div>
 
+          <div className="stat-card">
+            <div className="stat-icon stat-progress">
+              <Wrench size={22} />
+            </div>
+            <div>
+              <span className="stat-value">{awaitingAssignment}</span>
+              <span className="stat-label">Ready for Assignment</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon stat-progress">
+              <Clock3 size={22} />
+            </div>
+            <div>
+              <span className="stat-value">{inProgressComplaints}</span>
+              <span className="stat-label">Active Work</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon stat-resolved">
+              <CheckCircle2 size={22} />
+            </div>
+            <div>
+              <span className="stat-value">{resolvedComplaints}</span>
+              <span className="stat-label">Resolved</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Filter Bar */}
+        <section className="filters-section" style={{ margin: "24px 0" }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "12px",
+              background: "white",
+              padding: "16px",
+              borderRadius: "12px",
+              border: "1px solid #e2e8f0",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: "220px", position: "relative" }}>
+              <Search
+                size={18}
+                style={{ position: "absolute", left: "12px", top: "11px", color: "#94a3b8" }}
+              />
               <input
                 type="text"
-                placeholder="Search complaint, student or ID..."
+                placeholder="Search by ID, title, student, room..."
                 value={searchTerm}
-                onChange={(event) =>
-                  setSearchTerm(event.target.value)
-                }
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "9px 12px 9px 38px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "14px",
+                }}
               />
             </div>
 
-            <div className="filter-control">
-              <Filter size={16} />
-
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
               <select
                 value={statusFilter}
-                onChange={(event) =>
-                  setStatusFilter(
-                    event.target.value as
-                      | ComplaintStatus
-                      | "all"
-                  )
-                }
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "14px",
+                  background: "white",
+                }}
               >
-                <option value="all">
-                  All Status
-                </option>
-                <option value="submitted">
-                  Submitted
-                </option>
-                <option value="assigned">
-                  Assigned
-                </option>
-                <option value="in-progress">
-                  In Progress
-                </option>
-                <option value="resolved">
-                  Resolved
-                </option>
-                <option value="rejected">
-                  Rejected
-                </option>
+                <option value="all">All Statuses</option>
+                <option value="submitted">Submitted</option>
+                <option value="pending_verification">Pending Verification</option>
+                <option value="verified">Verified</option>
+                <option value="assigned">Assigned</option>
+                <option value="in-progress">In Progress</option>
+                <option value="need-material">Need Material</option>
+                <option value="resolved">Resolved</option>
+                <option value="rejected">Rejected</option>
               </select>
-            </div>
 
-            <div className="filter-control">
               <select
                 value={categoryFilter}
-                onChange={(event) =>
-                  setCategoryFilter(
-                    event.target.value as
-                      | ComplaintCategory
-                      | "all"
-                  )
-                }
+                onChange={(e) => setCategoryFilter(e.target.value as any)}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "14px",
+                  background: "white",
+                }}
               >
-                <option value="all">
-                  All Categories
-                </option>
-                <option value="Electrical">
-                  Electrical
-                </option>
-                <option value="Plumbing">
-                  Plumbing
-                </option>
-                <option value="Internet">
-                  Internet
-                </option>
-                <option value="Cleaning">
-                  Cleaning
-                </option>
-                <option value="Furniture">
-                  Furniture
-                </option>
-                <option value="Water Supply">
-                  Water Supply
-                </option>
-                <option value="Security">
-                  Security
-                </option>
-                <option value="Other">
-                  Other
-                </option>
+                <option value="all">All Categories</option>
+                <option value="Electrical">Electrical</option>
+                <option value="Plumbing">Plumbing</option>
+                <option value="Internet">Internet</option>
+                <option value="Cleaning">Cleaning</option>
+                <option value="Furniture">Furniture</option>
+                <option value="Water Supply">Water Supply</option>
+                <option value="Security">Security</option>
+                <option value="Other">Other</option>
               </select>
-            </div>
 
-            <div className="filter-control">
               <select
                 value={priorityFilter}
-                onChange={(event) =>
-                  setPriorityFilter(
-                    event.target.value as
-                      | ComplaintPriority
-                      | "all"
-                  )
-                }
+                onChange={(e) => setPriorityFilter(e.target.value as any)}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "14px",
+                  background: "white",
+                }}
               >
-                <option value="all">
-                  All Priority
-                </option>
-                <option value="low">
-                  Low
-                </option>
-                <option value="medium">
-                  Medium
-                </option>
-                <option value="high">
-                  High
-                </option>
-                <option value="urgent">
-                  Urgent
-                </option>
+                <option value="all">All Priorities</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
               </select>
             </div>
           </div>
+        </section>
 
-          {/* Complaint List */}
-          <div className="warden-complaint-list">
-            {filteredComplaints.length > 0 ? (
-              filteredComplaints.map(
-                (complaint) => (
-                  <WardenComplaintCard
-                    key={complaint.id}
-                    complaint={complaint}
-                    onView={() =>
-                      onViewComplaint(complaint)
-                    }
-                  />
-                )
-              )
-            ) : (
-              <div className="warden-empty-state">
-                <div className="empty-icon">
-                  <XCircle size={28} />
+        {/* Complaints Table/List */}
+        <section className="complaints-section">
+          {filteredComplaints.length > 0 ? (
+            <div className="complaints-list">
+              {filteredComplaints.map((complaint) => (
+                <div
+                  key={complaint.id}
+                  className="complaint-row"
+                  onClick={() => onViewComplaint(complaint)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") onViewComplaint(complaint)
+                  }}
+                >
+                  <div className="complaint-main">
+                    <div className="complaint-top">
+                      <span className="complaint-id">{complaint.id}</span>
+                      <span className={`status-badge status-${complaint.status}`}>
+                        {complaint.status.replace("-", " ").replace("_", " ")}
+                      </span>
+                      <span className={`priority-badge priority-${complaint.priority}`}>
+                        {complaint.priority}
+                      </span>
+                      {complaint.verification && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            padding: "2px 8px",
+                            borderRadius: "12px",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            background:
+                              complaint.verification.result === "verified"
+                                ? "#dcfce7"
+                                : complaint.verification.result === "potential_duplicate"
+                                ? "#fee2e2"
+                                : "#fef9c3",
+                            color:
+                              complaint.verification.result === "verified"
+                                ? "#166534"
+                                : complaint.verification.result === "potential_duplicate"
+                                ? "#991b1b"
+                                : "#854d0e",
+                          }}
+                        >
+                          <Sparkles size={12} />
+                          AI: {(complaint.verification.result || "pending").replace("_", " ")}
+                        </span>
+                      )}
+                    </div>
+
+                    <h3>{complaint.title}</h3>
+                    <p>{complaint.description}</p>
+
+                    <div className="complaint-meta">
+                      <span>👤 {complaint.studentName}</span>
+                      <span>🏠 Room {complaint.room}</span>
+                      <span>🏷️ {complaint.category}</span>
+                      <span>📅 {complaint.createdAt}</span>
+                      {complaint.assignedStaff ? (
+                        <span>🔧 Staff: {complaint.assignedStaff}</span>
+                      ) : (
+                        <span style={{ color: "#d97706", fontWeight: 600 }}>⚠️ Unassigned</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <span className="complaint-arrow">
+                    <ChevronRight size={20} />
+                  </span>
                 </div>
-
-                <h3>
-                  No complaints found
-                </h3>
-
-                <p>
-                  Try changing your search or
-                  filters.
-                </p>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "60px 20px",
+                background: "white",
+                borderRadius: "16px",
+                border: "1px solid #e2e8f0",
+              }}
+            >
+              <ClipboardList size={38} color="#94a3b8" style={{ marginBottom: "12px" }} />
+              <h3 style={{ margin: "0 0 6px", color: "#1e293b", fontSize: "18px" }}>
+                No complaints found
+              </h3>
+              <p style={{ margin: 0, color: "#64748b", fontSize: "14px" }}>
+                {complaints.length === 0
+                  ? "No complaints have been reported in your hostel yet."
+                  : "No complaints match the selected search or filter criteria."}
+              </p>
+            </div>
+          )}
         </section>
       </main>
     </div>
   )
 }
-
-interface StatCardProps {
-  icon: React.ReactNode
-  label: string
-  value: number
-  description: string
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-  description,
-}: StatCardProps) {
-  return (
-    <div className="stat-card">
-      <div className="stat-card-top">
-        <div className="stat-icon">
-          {icon}
-        </div>
-
-        <BarChart3 size={18} />
-      </div>
-
-      <div className="stat-value">
-        {value}
-      </div>
-
-      <div className="stat-label">
-        {label}
-      </div>
-
-      <div className="stat-description">
-        {description}
-      </div>
-    </div>
-  )
-}
-
-interface WardenComplaintCardProps {
-  complaint: Complaint
-  onView: () => void
-}
-
-function WardenComplaintCard({
-  complaint,
-  onView,
-}: WardenComplaintCardProps) {
-  return (
-    <div
-      className="warden-complaint-card"
-      onClick={onView}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (
-          event.key === "Enter" ||
-          event.key === " "
-        ) {
-          onView()
-        }
-      }}
-    >
-      <div className="warden-complaint-main">
-        <div className="warden-complaint-icon">
-          <ClipboardList size={21} />
-        </div>
-
-        <div className="warden-complaint-content">
-          <div className="warden-complaint-top">
-            <span className="complaint-id">
-              {complaint.id}
-            </span>
-
-            <span
-              className={`status-badge status-${complaint.status}`}
-            >
-              {formatStatus(complaint.status)}
-            </span>
-
-            <span
-              className={`priority-badge priority-${complaint.priority}`}
-            >
-              {complaint.priority}
-            </span>
-          </div>
-
-          <h3>
-            {complaint.title}
-          </h3>
-
-          <p>
-            {complaint.description}
-          </p>
-
-          <div className="warden-complaint-meta">
-            <span>
-              👤 {complaint.studentName}
-            </span>
-
-            <span>
-              🏠 {complaint.hostel}
-            </span>
-
-            <span>
-              🚪 Room {complaint.room}
-            </span>
-
-            <span>
-              🏷️ {complaint.category}
-            </span>
-          </div>
-
-          <div className="warden-assigned">
-            <Wrench size={15} />
-
-            {complaint.assignedStaff ? (
-              <span>
-                Assigned to{" "}
-                <strong>
-                  {complaint.assignedStaff}
-                </strong>
-              </span>
-            ) : (
-              <span>
-                <strong>
-                  Not assigned
-                </strong>
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="warden-view-button">
-        <span>View</span>
-        <ChevronRight size={19} />
-      </div>
-    </div>
-  )
-}
-
-function formatStatus(
-  status: ComplaintStatus
-) {
-  return status
-    .split("-")
-    .map(
-      (word) =>
-        word.charAt(0).toUpperCase() +
-        word.slice(1)
-    )
-    .join(" ")
-}
-
-export default WardenDashboard

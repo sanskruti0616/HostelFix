@@ -1,6 +1,4 @@
-
-import { useEffect, useState } from "react"
-
+import { useEffect, useState, useCallback } from "react"
 import Login from "./pages/Login"
 import StudentDashboard from "./pages/StudentDashboard"
 import WardenDashboard from "./pages/WardenDashboard"
@@ -10,354 +8,215 @@ import RaiseComplaint from "./pages/RaiseComplaint"
 import ComplaintHistory from "./pages/ComplaintHistory"
 import ComplaintDetails from "./pages/ComplaintDetails"
 
-import type {
-  Complaint,
-  ComplaintStatus,
-  UserRole,
-} from "./types"
+import type { Complaint, ComplaintStatus, User } from "./types"
+import { api, getStoredToken, getStoredUser, clearStoredAuth } from "./services/api"
+import { getSocket, updateSocketAuth, disconnectSocket } from "./services/socket"
+import { CheckCircle, AlertCircle, Info, X } from "lucide-react"
 
-type StudentPage =
-  | "dashboard"
-  | "raise-complaint"
-  | "history"
-  | "details"
+type StudentPage = "dashboard" | "raise-complaint" | "history" | "details"
 
-const API_URL = "http://localhost:5000"
-
-interface BackendComplaint {
-  id: number
-  student_id: number
-  student_name: string
-  hostel: string
-  room: string
+interface ToastNotification {
+  id: string
   title: string
-  description: string
-  category: string
-  priority: string
-  status: string
-  assigned_staff_id: number | null
-  assigned_staff: string | null
-  created_at: string
-  updated_at: string
-  completed_at: string | null
+  message: string
+  type: "info" | "success" | "warning"
 }
 
-function formatDate(dateString: string) {
-  if (!dateString) {
-    return new Date().toISOString().split("T")[0]
-  }
+export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(getStoredUser())
+  const [studentPage, setStudentPage] = useState<StudentPage>("dashboard")
+  const [complaintList, setComplaintList] = useState<Complaint[]>([])
+  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null)
+  const [isLoadingSession, setIsLoadingSession] = useState(true)
+  const [toasts, setToasts] = useState<ToastNotification[]>([])
 
-  return dateString.split("T")[0]
-}
-
-function convertBackendComplaint(
-  complaint: BackendComplaint
-): Complaint {
-  return {
-    id: `HF-${complaint.id}`,
-    studentId: `STU${String(complaint.student_id).padStart(3, "0")}`,
-    studentName: complaint.student_name || "Unknown Student",
-    hostel: complaint.hostel || "",
-    room: complaint.room || "",
-    title: complaint.title || "",
-    description: complaint.description || "",
-    category: complaint.category as Complaint["category"],
-    priority: complaint.priority as Complaint["priority"],
-    status: complaint.status as ComplaintStatus,
-    assignedStaff: complaint.assigned_staff || undefined,
-    createdAt: formatDate(complaint.created_at),
-    updatedAt: formatDate(complaint.updated_at),
-  }
-}
-
-function App() {
-  const [role, setRole] = useState<UserRole | null>(null)
-  const [studentPage, setStudentPage] =
-    useState<StudentPage>("dashboard")
-  const [complaintList, setComplaintList] =
-    useState<Complaint[]>([])
-  const [selectedComplaint, setSelectedComplaint] =
-    useState<Complaint | null>(null)
-  const [currentStaffName, setCurrentStaffName] =
-    useState("")
-  const [isLoadingComplaints, setIsLoadingComplaints] =
-    useState(true)
-
-  // LOAD COMPLAINTS FROM MYSQL
-  useEffect(() => {
-    const fetchComplaints = async () => {
-      try {
-        setIsLoadingComplaints(true)
-
-        const response = await fetch(
-          `${API_URL}/api/complaints`
-        )
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch complaints")
-        }
-
-        const data = await response.json()
-
-        if (!data.success) {
-          throw new Error(
-            data.message || "Failed to load complaints"
-          )
-        }
-
-        const backendComplaints: BackendComplaint[] =
-          Array.isArray(data.complaints)
-            ? data.complaints
-            : []
-
-        const convertedComplaints =
-          backendComplaints.map(convertBackendComplaint)
-
-        setComplaintList(convertedComplaints)
-      } catch (error) {
-        console.error("Failed to load complaints:", error)
-
-        alert(
-          "Could not load complaints from the server. Please make sure the HostelFix backend is running."
-        )
-      } finally {
-        setIsLoadingComplaints(false)
-      }
-    }
-
-    fetchComplaints()
+  const addToast = useCallback((title: string, message: string, type: "info" | "success" | "warning" = "info") => {
+    const id = Date.now().toString()
+    setToasts((prev) => [...prev, { id, title, message, type }])
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+    }, 5000)
   }, [])
 
-  // LOGIN
-  const handleLogin = (
-    selectedRole: UserRole,
-    staffName?: string
-  ) => {
-    setRole(selectedRole)
-    setSelectedComplaint(null)
-    setStudentPage("dashboard")
-
-    if (selectedRole === "staff") {
-      setCurrentStaffName(staffName ?? "")
+  // 1. Session verification on initial mount
+  useEffect(() => {
+    const token = getStoredToken()
+    if (!token) {
+      setIsLoadingSession(false)
+      return
     }
-  }
 
-  // LOGOUT
-  const handleLogout = () => {
-    setRole(null)
-    setStudentPage("dashboard")
+    api.auth.getMe()
+      .then((res) => {
+        setCurrentUser(res.user)
+        updateSocketAuth()
+      })
+      .catch((err) => {
+        console.warn("Session restore failed:", err.message)
+        clearStoredAuth()
+        setCurrentUser(null)
+      })
+      .finally(() => {
+        setIsLoadingSession(false)
+      })
+  }, [])
+
+  // 2. Fetch complaints from real backend API for logged-in user
+  const fetchComplaints = useCallback(async () => {
+    if (!currentUser) return
+    try {
+      const data = await api.complaints.list()
+      setComplaintList(data.complaints || [])
+
+      // If a complaint is currently selected, refresh its details
+      if (selectedComplaint) {
+        const refreshed = data.complaints.find((c) => c.id === selectedComplaint.id)
+        if (refreshed) {
+          setSelectedComplaint(refreshed)
+        }
+      }
+    } catch (error: any) {
+      console.error("Failed to load complaints from backend:", error.message)
+    }
+  }, [currentUser, selectedComplaint])
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchComplaints()
+    }
+  }, [currentUser])
+
+  // 3. Socket.IO Real-time Events Listener
+  useEffect(() => {
+    if (!currentUser) return
+
+    const socket = getSocket()
+
+    const handleComplaintCreated = (newComplaint: Complaint) => {
+      setComplaintList((prev) => [newComplaint, ...prev.filter((c) => c.id !== newComplaint.id)])
+      addToast(
+        "New Complaint Filed",
+        `#${newComplaint.id}: ${newComplaint.title} (${newComplaint.category})`,
+        "info"
+      )
+    }
+
+    const handleComplaintUpdated = (updatedComplaint: Complaint) => {
+      setComplaintList((prev) =>
+        prev.map((c) => (c.id === updatedComplaint.id ? updatedComplaint : c))
+      )
+      if (selectedComplaint && selectedComplaint.id === updatedComplaint.id) {
+        setSelectedComplaint(updatedComplaint)
+      }
+      addToast(
+        "Status Update",
+        `#${updatedComplaint.id} is now ${updatedComplaint.status.replace("-", " ")}`,
+        "success"
+      )
+    }
+
+    const handleNewNotification = (notification: any) => {
+      addToast(notification.title, notification.message, "info")
+    }
+
+    socket.on("complaint:created", handleComplaintCreated)
+    socket.on("complaint:updated", handleComplaintUpdated)
+    socket.on("notification:new", handleNewNotification)
+
+    return () => {
+      socket.off("complaint:created", handleComplaintCreated)
+      socket.off("complaint:updated", handleComplaintUpdated)
+      socket.off("notification:new", handleNewNotification)
+    }
+  }, [currentUser, selectedComplaint, addToast])
+
+  // 4. Handle Login Success
+  const handleLoginSuccess = (user: User) => {
+    setCurrentUser(user)
     setSelectedComplaint(null)
-    setCurrentStaffName("")
+    setStudentPage("dashboard")
+    updateSocketAuth()
   }
 
-  // STUDENT SUBMITS COMPLAINT
-  const handleComplaintSubmit = (
-    newComplaint: Complaint
-  ) => {
-    setComplaintList((current) => [
-      newComplaint,
-      ...current,
-    ])
-
+  // 5. Handle Logout
+  const handleLogout = () => {
+    api.auth.logout()
+    disconnectSocket()
+    setCurrentUser(null)
+    setComplaintList([])
+    setSelectedComplaint(null)
     setStudentPage("dashboard")
   }
 
-  // VIEW COMPLAINT
-  const handleViewComplaint = (
-    complaint: Complaint
-  ) => {
+  // 6. Handle Complaint Submission
+  const handleComplaintSubmit = (newComplaint: Complaint) => {
+    setComplaintList((prev) => [newComplaint, ...prev])
+    setStudentPage("dashboard")
+    addToast("Complaint Registered", `#${newComplaint.id} submitted successfully!`, "success")
+  }
+
+  // 7. View Complaint Details
+  const handleViewComplaint = (complaint: Complaint) => {
     setSelectedComplaint(complaint)
     setStudentPage("details")
   }
 
-  // STAFF IDS IN MYSQL
-  const staffIds: Record<string, number> = {
-    "Vaishnavi Bhoiwade": 3,
-    "Bhargavi Borkhade": 4,
-    "Bhavesh Bhut": 5,
-    "Ruturaj Bhome": 6,
-  }
-
-  // WARDEN ASSIGNS STAFF
-  const handleAssignStaff = async (
-    complaintId: string,
-    staffName: string
-  ) => {
+  // 8. Warden Assigns Staff
+  const handleAssignStaff = async (complaintId: string, staffName: string) => {
     try {
-      if (!staffName) {
-        alert("Please select a staff member.")
-        return
-      }
-
-      const databaseComplaintId = Number(
-        complaintId.replace("HF-", "")
-      )
-
-      const staffId = staffIds[staffName]
-
-      if (
-        !Number.isInteger(databaseComplaintId) ||
-        databaseComplaintId <= 0
-      ) {
-        throw new Error("Invalid complaint ID.")
-      }
-
-      if (!staffId) {
-        throw new Error("Invalid staff member selected.")
-      }
-
-      const response = await fetch(
-        `${API_URL}/api/complaints/${databaseComplaintId}/assign`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            staff_id: staffId,
-            actor_id: 2,
-          }),
-        }
-      )
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(
-          data.message || "Failed to assign staff."
-        )
-      }
-
-      const updatedComplaint =
-        convertBackendComplaint(
-          data.complaint as BackendComplaint
-        )
-
-      setComplaintList((current) =>
-        current.map((complaint) =>
-          complaint.id === complaintId
-            ? updatedComplaint
-            : complaint
-        )
-      )
-
-      setSelectedComplaint(updatedComplaint)
-
-      alert(`${staffName} has been assigned successfully.`)
-    } catch (error) {
-      console.error("Assignment error:", error)
-
-      alert(
-        error instanceof Error
-          ? error.message
-          : "Failed to assign staff."
-      )
+      const result = await api.complaints.assignStaff(complaintId, staffName)
+      const updated = result.complaint
+      setComplaintList((prev) => prev.map((c) => (c.id === complaintId ? updated : c)))
+      setSelectedComplaint(updated)
+      addToast("Technician Assigned", `${staffName} assigned to #${complaintId}`, "success")
+    } catch (error: any) {
+      alert(error.message || "Failed to assign staff")
     }
   }
 
-  // CHANGE COMPLAINT STATUS
+  // 9. Change Complaint Status
   const handleStatusChange = async (
     complaintId: string,
     status: ComplaintStatus,
     note?: string
   ) => {
     try {
-      const databaseComplaintId = Number(
-        complaintId.replace("HF-", "")
-      )
-
-      if (
-        !Number.isInteger(databaseComplaintId) ||
-        databaseComplaintId <= 0
-      ) {
-        throw new Error("Invalid complaint ID.")
-      }
-
-      const actorId =
-        role === "staff"
-          ? staffIds[currentStaffName]
-          : 2
-
-      if (!actorId) {
-        throw new Error(
-          "Could not identify the current user."
-        )
-      }
-
-      const response = await fetch(
-        `${API_URL}/api/complaints/${databaseComplaintId}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            status,
-            actor_id: actorId,
-            note:
-              note ||
-              `Complaint status changed to ${status}.`,
-          }),
-        }
-      )
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Failed to update complaint status."
-        )
-      }
-
-      const updatedComplaint =
-        convertBackendComplaint(
-          data.complaint as BackendComplaint
-        )
-
-      setComplaintList((current) =>
-        current.map((complaint) =>
-          complaint.id === complaintId
-            ? updatedComplaint
-            : complaint
-        )
-      )
-
-      setSelectedComplaint(updatedComplaint)
-    } catch (error) {
-      console.error("Status update error:", error)
-
-      alert(
-        error instanceof Error
-          ? error.message
-          : "Failed to update complaint status."
-      )
+      const result = await api.complaints.updateStatus(complaintId, status, note)
+      const updated = result.complaint
+      setComplaintList((prev) => prev.map((c) => (c.id === complaintId ? updated : c)))
+      setSelectedComplaint(updated)
+      addToast("Status Updated", `Complaint #${complaintId} changed to ${status}`, "success")
+    } catch (error: any) {
+      alert(error.message || "Failed to update complaint status")
     }
   }
 
-  // LOADING
-  if (isLoadingComplaints) {
+  // Initial session loading screen
+  if (isLoadingSession) {
     return (
       <div className="coming-soon">
         <div className="coming-soon-card">
           <div className="coming-soon-icon">🏠</div>
           <h1>HostelFix</h1>
-          <p>Loading complaints...</p>
+          <p>Verifying secure session...</p>
         </div>
       </div>
     )
   }
 
-  // STUDENT
-  if (role === "student") {
-    if (
-      studentPage === "details" &&
-      selectedComplaint
-    ) {
+  // Unauthenticated: Render Login Page
+  if (!currentUser) {
+    return <Login onLoginSuccess={handleLoginSuccess} />
+  }
+
+  // Role: STUDENT
+  const renderStudentView = () => {
+    if (studentPage === "details" && selectedComplaint) {
       return (
         <ComplaintDetails
           complaint={selectedComplaint}
           onBack={() => setStudentPage("history")}
+          onRefreshComplaint={fetchComplaints}
         />
       )
     }
@@ -375,6 +234,7 @@ function App() {
     if (studentPage === "raise-complaint") {
       return (
         <RaiseComplaint
+          currentUser={currentUser}
           onBack={() => setStudentPage("dashboard")}
           onComplaintSubmitted={handleComplaintSubmit}
         />
@@ -383,99 +243,145 @@ function App() {
 
     return (
       <StudentDashboard
+        currentUser={currentUser}
         complaints={complaintList}
         onLogout={handleLogout}
-        onRaiseComplaint={() =>
-          setStudentPage("raise-complaint")
-        }
-        onViewHistory={() =>
-          setStudentPage("history")
-        }
+        onRaiseComplaint={() => setStudentPage("raise-complaint")}
+        onViewHistory={() => setStudentPage("history")}
         onViewComplaint={handleViewComplaint}
+        onRefresh={fetchComplaints}
       />
     )
   }
 
-  // WARDEN
-  if (role === "warden") {
-    if (
-      studentPage === "details" &&
-      selectedComplaint
-    ) {
+  // Role: WARDEN
+  const renderWardenView = () => {
+    if (studentPage === "details" && selectedComplaint) {
       return (
         <ComplaintDetails
           complaint={selectedComplaint}
           isWarden
           onBack={() => setStudentPage("dashboard")}
-          onAssignStaff={(staffName) =>
-            handleAssignStaff(
-              selectedComplaint.id,
-              staffName
-            )
-          }
-          onStatusChange={(status) =>
-            handleStatusChange(
-              selectedComplaint.id,
-              status
-            )
-          }
+          onAssignStaff={(staffName) => handleAssignStaff(selectedComplaint.id, staffName)}
+          onStatusChange={(status, note) => handleStatusChange(selectedComplaint.id, status, note)}
+          onRefreshComplaint={fetchComplaints}
         />
       )
     }
 
     return (
       <WardenDashboard
+        currentUser={currentUser}
         complaints={complaintList}
         onLogout={handleLogout}
         onViewComplaint={handleViewComplaint}
+        onRefresh={fetchComplaints}
       />
     )
   }
 
-  // STAFF
-  if (role === "staff") {
-    if (
-      studentPage === "details" &&
-      selectedComplaint
-    ) {
+  // Role: STAFF
+  const renderStaffView = () => {
+    if (studentPage === "details" && selectedComplaint) {
       return (
         <ComplaintDetails
           complaint={selectedComplaint}
           onBack={() => setStudentPage("dashboard")}
-          onStatusChange={(status) =>
-            handleStatusChange(
-              selectedComplaint.id,
-              status
-            )
-          }
+          onStatusChange={(status, note) => handleStatusChange(selectedComplaint.id, status, note)}
+          onRefreshComplaint={fetchComplaints}
         />
       )
     }
 
     return (
       <StaffDashboard
+        currentUser={currentUser}
         complaints={complaintList}
-        staffName={currentStaffName}
         onLogout={handleLogout}
         onViewComplaint={handleViewComplaint}
         onStatusChange={handleStatusChange}
+        onRefresh={fetchComplaints}
       />
     )
   }
 
-  // ADMIN
-  if (role === "admin") {
+  // Role: ADMIN
+  const renderAdminView = () => {
+    if (studentPage === "details" && selectedComplaint) {
+      return (
+        <ComplaintDetails
+          complaint={selectedComplaint}
+          isWarden
+          onBack={() => setStudentPage("dashboard")}
+          onAssignStaff={(staffName) => handleAssignStaff(selectedComplaint.id, staffName)}
+          onStatusChange={(status, note) => handleStatusChange(selectedComplaint.id, status, note)}
+          onRefreshComplaint={fetchComplaints}
+        />
+      )
+    }
+
     return (
       <AdminDashboard
+        currentUser={currentUser}
         complaints={complaintList}
         onLogout={handleLogout}
         onViewComplaint={handleViewComplaint}
+        onRefresh={fetchComplaints}
       />
     )
   }
 
-  // LOGIN
-  return <Login onLogin={handleLogin} />
-}
+  return (
+    <>
+      {/* Toast Notification Container */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: "20px",
+          right: "20px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px",
+          zIndex: 9999,
+          maxWidth: "360px",
+        }}
+      >
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "10px",
+              padding: "12px 16px",
+              background: "#1e293b",
+              color: "white",
+              borderRadius: "10px",
+              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.2)",
+              fontSize: "13px",
+            }}
+          >
+            {toast.type === "success" && <CheckCircle size={18} color="#22c55e" style={{ flexShrink: 0 }} />}
+            {toast.type === "warning" && <AlertCircle size={18} color="#f59e0b" style={{ flexShrink: 0 }} />}
+            {toast.type === "info" && <Info size={18} color="#38bdf8" style={{ flexShrink: 0 }} />}
+            <div style={{ flex: 1 }}>
+              <strong style={{ display: "block", marginBottom: "2px" }}>{toast.title}</strong>
+              <span style={{ color: "#cbd5e1" }}>{toast.message}</span>
+            </div>
+            <button
+              onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+              style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: "2px" }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
 
-export default App
+      {currentUser.role === "student" && renderStudentView()}
+      {currentUser.role === "warden" && renderWardenView()}
+      {currentUser.role === "staff" && renderStaffView()}
+      {currentUser.role === "admin" && renderAdminView()}
+    </>
+  )
+}

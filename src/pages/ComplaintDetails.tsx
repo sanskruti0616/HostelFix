@@ -5,1008 +5,754 @@ import {
   Clock3,
   FileText,
   Home,
+  Image as ImageIcon,
   LoaderCircle,
-  Package,
+  Sparkles,
   UserRound,
   Wrench,
-  XCircle,
+  X,
 } from "lucide-react"
-
-import {
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react"
-
-import type {
-  Complaint,
-  ComplaintStatus,
-} from "../types"
+import { useEffect, useState, type ReactNode } from "react"
+import type { Complaint, ComplaintStatus, ComplaintUpdate } from "../types"
+import { api } from "../services/api"
 
 interface ComplaintDetailsProps {
   complaint: Complaint
   onBack: () => void
   isWarden?: boolean
-
-  onStatusChange?: (
-    status: ComplaintStatus
-  ) => void
-
-  onAssignStaff?: (
-    staffName: string
-  ) => void
+  onStatusChange?: (status: ComplaintStatus, note?: string) => void
+  onAssignStaff?: (staffName: string) => void
+  onRefreshComplaint?: () => void
 }
 
-interface ComplaintUpdate {
-  id: number
-  complaint_id: number
-  user_id: number | null
-  old_status: string | null
-  new_status: string
-  note: string | null
-  created_at: string
-  user_name: string | null
-  user_role: string | null
-}
-
-const API_URL =
-  "http://localhost:5000"
-
-function ComplaintDetails({
+export default function ComplaintDetails({
   complaint,
   onBack,
   isWarden = false,
   onStatusChange,
   onAssignStaff,
+  onRefreshComplaint,
 }: ComplaintDetailsProps) {
-  const [history, setHistory] =
-    useState<ComplaintUpdate[]>([])
+  const [history, setHistory] = useState<ComplaintUpdate[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [staffOptions, setStaffOptions] = useState<{ id: string; name: string }[]>([])
+  const [selectedStaff, setSelectedStaff] = useState(complaint.assignedStaff || "")
+  const [activeImageZoom, setActiveImageZoom] = useState<string | null>(null)
 
-  const [isLoadingHistory, setIsLoadingHistory] =
-    useState(true)
+  // Warden verification dialog state
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false)
+  const [verifyAction, setVerifyAction] = useState<"approve" | "reject" | "request_info">("approve")
+  const [verifyReason, setVerifyReason] = useState("")
+  const [isSubmittingVerify, setIsSubmittingVerify] = useState(false)
 
-  // =====================================================
-  // LOAD REAL COMPLAINT HISTORY
-  // =====================================================
-
+  // Load real history from backend
   useEffect(() => {
-    const fetchHistory =
-      async () => {
-        try {
-          setIsLoadingHistory(true)
+    let isMounted = true
+    setIsLoadingHistory(true)
+    api.complaints.getUpdates(complaint.id)
+      .then((res) => {
+        if (isMounted) setHistory(res.updates || [])
+      })
+      .catch((err) => {
+        console.error("Failed to load timeline:", err)
+        if (isMounted) setHistory([])
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingHistory(false)
+      })
 
-          const databaseId =
-            Number(
-              complaint.id.replace(
-                "HF-",
-                ""
-              )
-            )
-
-          if (
-            !Number.isInteger(
-              databaseId
-            )
-          ) {
-            throw new Error(
-              "Invalid complaint ID."
-            )
-          }
-
-          const response =
-            await fetch(
-              `${API_URL}/api/complaints/${databaseId}/updates`
-            )
-
-          const data =
-            await response.json()
-
-          if (!response.ok) {
-            throw new Error(
-              data.message ||
-                "Failed to load complaint history."
-            )
-          }
-
-          setHistory(
-            data.updates || []
-          )
-        } catch (error) {
-          console.error(
-            "Failed to load complaint history:",
-            error
-          )
-
-          setHistory([])
-        } finally {
-          setIsLoadingHistory(false)
-        }
-      }
-
-    fetchHistory()
+    return () => {
+      isMounted = false
+    }
   }, [complaint.id])
 
-  // =====================================================
-  // TIMELINE TITLE
-  // =====================================================
+  // Load active staff technicians for warden assignment
+  useEffect(() => {
+    if (isWarden) {
+      api.auth.getStaffList()
+        .then((res) => setStaffOptions(res.staff.map((s) => ({ id: s.id, name: s.name }))))
+        .catch((err) => console.warn("Failed to load staff list:", err))
+    }
+  }, [isWarden])
 
-  const getTimelineTitle = (
-    status: string
-  ) => {
+  const handleVerifySubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSubmittingVerify(true)
+    try {
+      await api.complaints.verify(complaint.id, verifyAction, verifyReason)
+      setVerifyDialogOpen(false)
+      onRefreshComplaint?.()
+      alert(`Complaint verification updated: ${verifyAction}`)
+    } catch (err: any) {
+      alert(err.message || "Failed to update verification")
+    } finally {
+      setIsSubmittingVerify(false)
+    }
+  }
+
+  const getTimelineTitle = (status: string) => {
     switch (status) {
       case "submitted":
         return "Complaint Submitted"
-
+      case "pending_verification":
+        return "Under AI & Warden Review"
+      case "verified":
+        return "Complaint Verified"
       case "assigned":
-        return "Complaint Assigned"
-
+        return "Technician Assigned"
       case "in-progress":
         return "Work In Progress"
-
       case "need-material":
-        return "Material Required"
-
+        return "Material Parts Required"
       case "cannot-complete":
         return "Unable To Complete"
-
       case "resolved":
-        return "Complaint Resolved"
-
+        return "Work Completed"
+      case "closed":
+        return "Feedback Provided & Closed"
+      case "needs_information":
+        return "Additional Information Requested"
       case "rejected":
         return "Complaint Rejected"
-
+      case "reopened":
+        return "Complaint Reopened"
       default:
-        return formatStatus(
-          status
-        )
+        return formatStatus(status)
     }
   }
-
-  // =====================================================
-  // TIMELINE ICON
-  // =====================================================
-
-  const getTimelineIcon = (
-    status: string
-  ) => {
-    switch (status) {
-      case "need-material":
-        return (
-          <Package size={15} />
-        )
-
-      case "cannot-complete":
-        return (
-          <XCircle size={15} />
-        )
-
-      default:
-        return (
-          <CheckCircle2
-            size={15}
-          />
-        )
-    }
-  }
-
-  // =====================================================
-  // TIMELINE CLASS
-  // =====================================================
-
-  const getTimelineClass =
-    (status: string) => {
-      switch (status) {
-        case "need-material":
-          return "timeline-warning"
-
-        case "cannot-complete":
-          return "timeline-danger"
-
-        case "resolved":
-          return "timeline-success"
-
-        case "rejected":
-          return "timeline-danger"
-
-        default:
-          return ""
-      }
-    }
 
   return (
     <div className="details-page">
-
-      {/* =================================================
-          HEADER
-      ================================================= */}
-
+      {/* Header */}
       <header className="dashboard-header">
-
         <div className="header-brand">
-
-          <button
-            className="back-button"
-            onClick={onBack}
-            type="button"
-          >
-            <ArrowLeft
-              size={19}
-            />
+          <button className="back-button" onClick={onBack} type="button">
+            <ArrowLeft size={19} />
           </button>
-
           <div className="brand-icon">
-            <FileText
-              size={22}
-            />
+            <FileText size={22} />
           </div>
-
           <div>
-            <h2>
-              HostelFix
-            </h2>
-
-            <span>
-              Complaint Details
-            </span>
+            <h2>HostelFix</h2>
+            <span>Complaint Details</span>
           </div>
-
         </div>
-
       </header>
 
-      {/* =================================================
-          MAIN
-      ================================================= */}
-
+      {/* Main Content */}
       <main className="details-main">
-
-        {/* =================================================
-            TITLE
-        ================================================= */}
-
+        {/* Title Bar */}
         <section className="details-title">
-
           <div>
-
-            <p className="eyebrow">
-              COMPLAINT{" "}
-              {complaint.id}
-            </p>
-
-            <h1>
-              {complaint.title}
-            </h1>
-
-            <p>
-              Submitted on{" "}
-              {formatDate(
-                complaint.createdAt
-              )}
-            </p>
-
+            <p className="eyebrow">COMPLAINT {complaint.id}</p>
+            <h1>{complaint.title}</h1>
+            <p>Submitted on {formatDate(complaint.createdAt)}</p>
           </div>
 
           <div className="details-title-badges">
-
-            <span
-              className={`status-badge status-${complaint.status}`}
-            >
-              {formatStatus(
-                complaint.status
-              )}
+            <span className={`status-badge status-${complaint.status}`}>
+              {formatStatus(complaint.status)}
             </span>
-
-            <span
-              className={`priority-badge priority-${complaint.priority}`}
-            >
+            <span className={`priority-badge priority-${complaint.priority}`}>
               {complaint.priority}
             </span>
-
           </div>
-
         </section>
 
-        {/* =================================================
-            COMPLAINT INFORMATION
-        ================================================= */}
+        {/* AI Verification Assessment Card (For Warden/Admin) */}
+        {complaint.verification && (
+          <section
+            style={{
+              background: "white",
+              borderRadius: "14px",
+              padding: "20px",
+              marginBottom: "20px",
+              border: "1px solid #e2e8f0",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.03)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Sparkles size={20} color="#6366f1" />
+                <h2 style={{ margin: 0, fontSize: "16px", color: "#1e293b" }}>
+                  AI Validity & Duplicate Assessment
+                </h2>
+              </div>
+              <span
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "20px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  background:
+                    complaint.verification.result === "verified"
+                      ? "#dcfce7"
+                      : complaint.verification.result === "potential_duplicate"
+                      ? "#fee2e2"
+                      : "#fef9c3",
+                  color:
+                    complaint.verification.result === "verified"
+                      ? "#166534"
+                      : complaint.verification.result === "potential_duplicate"
+                      ? "#991b1b"
+                      : "#854d0e",
+                }}
+              >
+                {(complaint.verification.result || "pending").replace("_", " ").toUpperCase()} (
+                {Math.round((complaint.verification.confidence || 0) * 100)}% Confidence)
+              </span>
+            </div>
 
+            <p style={{ margin: "0 0 12px", fontSize: "14px", color: "#475569", lineHeight: 1.5 }}>
+              {complaint.verification.explanation ||
+                "Complaint evaluated against hostel category dictionary and perceptual image hash database."}
+            </p>
+
+            {/* Warden verification buttons */}
+            {isWarden && (
+              <div style={{ display: "flex", gap: "10px", marginTop: "14px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerifyAction("approve")
+                    setVerifyReason("Verified complaint evidence and description.")
+                    setVerifyDialogOpen(true)
+                  }}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "6px",
+                    border: "none",
+                    background: "#16a34a",
+                    color: "white",
+                    fontWeight: 600,
+                    fontSize: "13px",
+                    cursor: "pointer",
+                  }}
+                >
+                  ✓ Approve & Verify
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerifyAction("request_info")
+                    setVerifyReason("Please provide clearer photos or more specific location details.")
+                    setVerifyDialogOpen(true)
+                  }}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "6px",
+                    border: "1px solid #f59e0b",
+                    background: "#fffbeb",
+                    color: "#b45309",
+                    fontWeight: 600,
+                    fontSize: "13px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Request More Info
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerifyAction("reject")
+                    setVerifyReason("Does not meet hostel maintenance criteria or duplicate record.")
+                    setVerifyDialogOpen(true)
+                  }}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "6px",
+                    border: "1px solid #ef4444",
+                    background: "#fef2f2",
+                    color: "#dc2626",
+                    fontWeight: 600,
+                    fontSize: "13px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Reject Complaint
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Info Grid */}
         <section className="details-grid">
-
           <div className="details-card">
-
             <div className="details-card-header">
-
-              <FileText
-                size={20}
-              />
-
-              <h2>
-                Complaint Information
-              </h2>
-
+              <FileText size={20} />
+              <h2>Complaint Information</h2>
             </div>
 
             <div className="details-info-grid">
-
-              <InfoItem
-                icon={
-                  <FileText
-                    size={17}
-                  />
-                }
-                label="Category"
-                value={
-                  complaint.category
-                }
-              />
-
-              <InfoItem
-                icon={
-                  <Wrench
-                    size={17}
-                  />
-                }
-                label="Priority"
-                value={
-                  complaint.priority
-                }
-              />
-
-              <InfoItem
-                icon={
-                  <Home
-                    size={17}
-                  />
-                }
-                label="Hostel"
-                value={
-                  complaint.hostel
-                }
-              />
-
-              <InfoItem
-                icon={
-                  <Home
-                    size={17}
-                  />
-                }
-                label="Room"
-                value={
-                  complaint.room
-                }
-              />
-
-              <InfoItem
-                icon={
-                  <CalendarDays
-                    size={17}
-                  />
-                }
-                label="Submitted"
-                value={formatDate(
-                  complaint.createdAt
-                )}
-              />
-
-              <InfoItem
-                icon={
-                  <Clock3
-                    size={17}
-                  />
-                }
-                label="Last Updated"
-                value={formatDate(
-                  complaint.updatedAt
-                )}
-              />
-
+              <InfoItem icon={<FileText size={17} />} label="Category" value={complaint.category} />
+              <InfoItem icon={<Wrench size={17} />} label="Priority" value={complaint.priority} />
+              <InfoItem icon={<Home size={17} />} label="Hostel" value={complaint.hostel} />
+              <InfoItem icon={<Home size={17} />} label="Room" value={complaint.room} />
+              <InfoItem icon={<CalendarDays size={17} />} label="Submitted" value={formatDate(complaint.createdAt)} />
+              <InfoItem icon={<Clock3 size={17} />} label="Last Updated" value={formatDate(complaint.updatedAt)} />
             </div>
-
           </div>
-
-          {/* =================================================
-              STUDENT
-          ================================================= */}
 
           <div className="details-card">
-
             <div className="details-card-header">
-
-              <UserRound
-                size={20}
-              />
-
-              <h2>
-                Student
-              </h2>
-
+              <UserRound size={20} />
+              <h2>Student Contact</h2>
             </div>
-
             <div className="assigned-person">
-
-              <div className="assigned-avatar">
-
-                {getInitials(
-                  complaint.studentName
-                )}
-
-              </div>
-
+              <div className="assigned-avatar">{getInitials(complaint.studentName)}</div>
               <div>
-
-                <strong>
-                  {
-                    complaint.studentName
-                  }
-                </strong>
-
-                <span>
-                  Student ID:{" "}
-                  {
-                    complaint.studentId
-                  }
-                </span>
-
+                <strong>{complaint.studentName}</strong>
+                <span>Student ID: {complaint.studentId}</span>
+                {complaint.studentEmail && (
+                  <small style={{ display: "block", color: "#64748b" }}>{complaint.studentEmail}</small>
+                )}
               </div>
-
             </div>
-
           </div>
-
         </section>
 
-        {/* =================================================
-            MAINTENANCE STAFF
-        ================================================= */}
-
-        <section className="details-card">
-
+        {/* Assigned Staff Card */}
+        <section className="details-card" style={{ marginTop: "20px" }}>
           <div className="details-card-header">
-
-            <Wrench
-              size={20}
-            />
-
-            <h2>
-              Maintenance Staff
-            </h2>
-
+            <Wrench size={20} />
+            <h2>Assigned Maintenance Technician</h2>
           </div>
 
           {complaint.assignedStaff ? (
-
             <div className="assigned-person">
-
-              <div className="assigned-avatar">
-
-                {getInitials(
-                  complaint.assignedStaff
-                )}
-
-              </div>
-
+              <div className="assigned-avatar">{getInitials(complaint.assignedStaff)}</div>
               <div>
-
-                <strong>
-                  {
-                    complaint.assignedStaff
-                  }
-                </strong>
-
-                <span>
-                  Assigned maintenance
-                  staff
-                </span>
-
+                <strong>{complaint.assignedStaff}</strong>
+                <span>Assigned Maintenance Staff</span>
               </div>
-
             </div>
-
           ) : (
-
             <div className="not-assigned">
-
-              <Wrench
-                size={20}
-              />
-
+              <Wrench size={20} />
               <div>
-
-                <strong>
-                  Not assigned yet
-                </strong>
-
-                <span>
-                  A maintenance staff
-                  member has not been
-                  assigned.
-                </span>
-
+                <strong>Not assigned yet</strong>
+                <span>A maintenance technician has not been assigned to this ticket.</span>
               </div>
-
             </div>
-
           )}
-
         </section>
 
-        {/* =================================================
-            WARDEN MANAGEMENT
-        ================================================= */}
-
+        {/* Warden Management Section */}
         {isWarden && (
-
-          <section className="warden-management-card">
-
+          <section className="warden-management-card" style={{ marginTop: "20px" }}>
             <div className="details-card-header">
-
-              <Wrench
-                size={20}
-              />
-
+              <Wrench size={20} />
               <div>
-
-                <h2>
-                  Manage Complaint
-                </h2>
-
-                <p>
-                  Assign staff and update
-                  the complaint status.
-                </p>
-
+                <h2>Manage Assignment & Status</h2>
+                <p>Assign technicians and advance the lifecycle state.</p>
               </div>
-
             </div>
 
             <div className="warden-management-grid">
-
-              {/* ASSIGN STAFF */}
-
               <div className="management-control">
-
-                <label htmlFor="staff">
-                  Assign Maintenance
-                  Staff
-                </label>
-
+                <label htmlFor="staff">Assign Technician</label>
                 <select
                   id="staff"
-                  value={
-                    complaint.assignedStaff ||
-                    ""
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    onAssignStaff?.(
-                      event.target
-                        .value
-                    )
-                  }
+                  value={selectedStaff}
+                  onChange={(e) => {
+                    setSelectedStaff(e.target.value)
+                    if (e.target.value) {
+                      onAssignStaff?.(e.target.value)
+                    }
+                  }}
                 >
-
-                  <option value="">
-                    Select staff member
-                  </option>
-
-                  <option value="Vaishnavi Bhoiwade">
-                    Vaishnavi Bhoiwade
-                  </option>
-
-                  <option value="Bhargavi Borkhade">
-                    Bhargavi Borkhade
-                  </option>
-
-                  <option value="Bhavesh Bhut">
-                    Bhavesh Bhut
-                  </option>
-
-                  <option value="Ruturaj Bhome">
-                    Ruturaj Bhome
-                  </option>
-
+                  <option value="">Select technician</option>
+                  {staffOptions.length > 0 ? (
+                    staffOptions.map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="Vaishnavi Bhoiwade">Vaishnavi Bhoiwade</option>
+                      <option value="Bhargavi Borkhade">Bhargavi Borkhade</option>
+                      <option value="Bhavesh Bhut">Bhavesh Bhut</option>
+                      <option value="Ruturaj Bhome">Ruturaj Bhome</option>
+                    </>
+                  )}
                 </select>
-
               </div>
-
-              {/* UPDATE STATUS */}
 
               <div className="management-control">
-
-                <label htmlFor="status">
-                  Update Status
-                </label>
-
+                <label htmlFor="status">Update Lifecycle Status</label>
                 <select
                   id="status"
-                  value={
-                    complaint.status
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    onStatusChange?.(
-                      event.target
-                        .value as ComplaintStatus
-                    )
-                  }
+                  value={complaint.status}
+                  onChange={(e) => onStatusChange?.(e.target.value as ComplaintStatus)}
                 >
-
-                  <option value="submitted">
-                    Submitted
-                  </option>
-
-                  <option value="assigned">
-                    Assigned
-                  </option>
-
-                  <option value="in-progress">
-                    In Progress
-                  </option>
-
-                  <option value="need-material">
-                    Need Material
-                  </option>
-
-                  <option value="cannot-complete">
-                    Can't Complete
-                  </option>
-
-                  <option value="resolved">
-                    Resolved
-                  </option>
-
-                  <option value="rejected">
-                    Rejected
-                  </option>
-
+                  <option value="submitted">Submitted</option>
+                  <option value="verified">Verified</option>
+                  <option value="assigned">Assigned</option>
+                  <option value="in-progress">In Progress</option>
+                  <option value="need-material">Need Material</option>
+                  <option value="cannot-complete">Can't Complete</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="rejected">Rejected</option>
                 </select>
-
               </div>
-
             </div>
-
           </section>
-
         )}
 
-        {/* =================================================
-            DESCRIPTION
-        ================================================= */}
-
-        <section className="description-card">
-
+        {/* Description */}
+        <section className="description-card" style={{ marginTop: "20px" }}>
           <div className="details-card-header">
-
-            <FileText
-              size={20}
-            />
-
-            <h2>
-              Description
-            </h2>
-
+            <FileText size={20} />
+            <h2>Description</h2>
           </div>
-
-          <p>
-            {complaint.description}
-          </p>
-
+          <p>{complaint.description}</p>
         </section>
 
-        {/* =================================================
-            REAL COMPLAINT TIMELINE
-        ================================================= */}
+        {/* Evidence Photographs Gallery */}
+        {complaint.evidenceImages && complaint.evidenceImages.length > 0 && (
+          <section className="details-card" style={{ marginTop: "20px" }}>
+            <div className="details-card-header">
+              <ImageIcon size={20} />
+              <h2>Attached Evidence Photographs ({complaint.evidenceImages.length})</h2>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
+              {complaint.evidenceImages.map((img, idx) => {
+                const imageUrl = img.url.startsWith("http")
+                  ? img.url
+                  : `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${img.url}`
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => setActiveImageZoom(imageUrl)}
+                    style={{
+                      borderRadius: "10px",
+                      overflow: "hidden",
+                      border: "1px solid #e2e8f0",
+                      height: "150px",
+                      cursor: "zoom-in",
+                      position: "relative",
+                    }}
+                  >
+                    <img src={imageUrl} alt="evidence" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    {img.isBlurry && (
+                      <span
+                        style={{
+                          position: "absolute",
+                          bottom: "6px",
+                          left: "6px",
+                          background: "rgba(180, 83, 9, 0.85)",
+                          color: "white",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          fontSize: "11px",
+                        }}
+                      >
+                        ⚠️ Blurry
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
-        <section className="timeline-card">
+        {/* Resolution Photographs Gallery (Uploaded by Technician) */}
+        {complaint.resolutionImages && complaint.resolutionImages.length > 0 && (
+          <section className="details-card" style={{ marginTop: "20px", borderLeft: "4px solid #16a34a" }}>
+            <div className="details-card-header">
+              <CheckCircle2 size={20} color="#16a34a" />
+              <h2>Technician Resolution Photographs</h2>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
+              {complaint.resolutionImages.map((img, idx) => {
+                const imageUrl = img.url.startsWith("http")
+                  ? img.url
+                  : `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${img.url}`
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => setActiveImageZoom(imageUrl)}
+                    style={{
+                      borderRadius: "10px",
+                      overflow: "hidden",
+                      border: "1px solid #bbf7d0",
+                      height: "150px",
+                      cursor: "zoom-in",
+                    }}
+                  >
+                    <img src={imageUrl} alt="resolution" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
+        {/* Real Complaint Timeline */}
+        <section className="timeline-card" style={{ marginTop: "20px" }}>
           <div className="details-card-header">
-
-            <Clock3
-              size={20}
-            />
-
-            <h2>
-              Complaint Timeline
-            </h2>
-
+            <Clock3 size={20} />
+            <h2>Audit History & Progress Timeline</h2>
           </div>
 
           {isLoadingHistory ? (
-
             <div className="timeline-loading">
-
-              <LoaderCircle
-                size={22}
-                className="timeline-spinner"
-              />
-
-              <span>
-                Loading complaint
-                history...
-              </span>
-
+              <LoaderCircle size={22} className="timeline-spinner" />
+              <span>Loading complaint history...</span>
             </div>
-
           ) : (
-
             <div className="timeline">
-
-              {/* SUBMITTED IS ALWAYS THE FIRST EVENT */}
-
               <TimelineItem
-                title="Complaint Submitted"
-                date={
-                  complaint.createdAt
-                }
+                title="Complaint Registered"
+                date={complaint.createdAt}
                 completed
+                note="Ticket registered in MongoDB Atlas."
               />
 
-              {/* REAL DATABASE EVENTS */}
-
-              {history.map(
-                (update) => (
-
-                  <TimelineItem
-                    key={
-                      update.id
-                    }
-                    title={getTimelineTitle(
-                      update.new_status
-                    )}
-                    date={formatDateTime(
-                      update.created_at
-                    )}
-                    completed
-                    className={getTimelineClass(
-                      update.new_status
-                    )}
-                    icon={getTimelineIcon(
-                      update.new_status
-                    )}
-                    note={
-                      update.note ||
-                      undefined
-                    }
-                    userName={
-                      update.user_name ||
-                      undefined
-                    }
-                  />
-
-                )
-              )}
-
-              {/* FALLBACK FOR OLD COMPLAINTS */}
-
-              {history.length ===
-                0 &&
-                complaint.status !==
-                  "submitted" && (
-
-                  <TimelineItem
-                    title={getTimelineTitle(
-                      complaint.status
-                    )}
-                    date={
-                      complaint.updatedAt
-                    }
-                    completed
-                    note="Historical update was not recorded."
-                  />
-
-                )}
-
+              {history.map((update) => (
+                <TimelineItem
+                  key={update.id}
+                  title={getTimelineTitle(update.new_status)}
+                  date={formatDateTime(update.created_at)}
+                  completed
+                  note={update.note || undefined}
+                  userName={update.user_name || undefined}
+                />
+              ))}
             </div>
-
           )}
-
         </section>
-
       </main>
 
+      {/* Image Zoom Modal */}
+      {activeImageZoom && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0, 0, 0, 0.85)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 2000,
+            padding: "20px",
+          }}
+          onClick={() => setActiveImageZoom(null)}
+        >
+          <div style={{ position: "relative", maxWidth: "90%", maxHeight: "90%" }}>
+            <img
+              src={activeImageZoom}
+              alt="enlarged evidence"
+              style={{ maxWidth: "100%", maxHeight: "90vh", borderRadius: "8px", objectFit: "contain" }}
+            />
+            <button
+              onClick={() => setActiveImageZoom(null)}
+              style={{
+                position: "absolute",
+                top: "-40px",
+                right: "0",
+                background: "white",
+                border: "none",
+                borderRadius: "50%",
+                width: "32px",
+                height: "32px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Warden Verification Reason Modal */}
+      {verifyDialogOpen && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(15, 23, 42, 0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+            zIndex: 1500,
+          }}
+          onClick={() => !isSubmittingVerify && setVerifyDialogOpen(false)}
+        >
+          <div
+            style={{
+              background: "white",
+              borderRadius: "16px",
+              padding: "24px",
+              maxWidth: "460px",
+              width: "100%",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: "0 0 10px" }}>
+              {verifyAction === "approve"
+                ? "Approve & Verify Complaint"
+                : verifyAction === "reject"
+                ? "Reject Complaint"
+                : "Request Information from Student"}
+            </h3>
+            <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: "14px" }}>
+              Please provide documentation or comments explaining your decision.
+            </p>
+
+            <form onSubmit={handleVerifySubmit}>
+              <textarea
+                value={verifyReason}
+                onChange={(e) => setVerifyReason(e.target.value)}
+                placeholder="Reason or instructions for the record..."
+                rows={4}
+                required
+                style={{
+                  width: "100%",
+                  padding: "10px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  marginBottom: "16px",
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+                <button
+                  type="button"
+                  onClick={() => setVerifyDialogOpen(false)}
+                  disabled={isSubmittingVerify}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "8px",
+                    border: "1px solid #cbd5e1",
+                    background: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingVerify}
+                  style={{
+                    padding: "8px 18px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: verifyAction === "reject" ? "#dc2626" : "#2563eb",
+                    color: "white",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {isSubmittingVerify ? "Submitting..." : "Confirm Decision"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-// =========================================================
-// INFORMATION ITEM
-// =========================================================
-
-interface InfoItemProps {
-  icon: ReactNode
-  label: string
-  value: string
-}
-
-function InfoItem({
-  icon,
-  label,
-  value,
-}: InfoItemProps) {
+function InfoItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
     <div className="details-info-item">
-
-      <div className="details-info-icon">
-        {icon}
-      </div>
-
+      <div className="details-info-icon">{icon}</div>
       <div>
-
-        <span>
-          {label}
-        </span>
-
-        <strong>
-          {value}
-        </strong>
-
+        <span>{label}</span>
+        <strong>{value}</strong>
       </div>
-
     </div>
   )
-}
-
-// =========================================================
-// TIMELINE ITEM
-// =========================================================
-
-interface TimelineItemProps {
-  title: string
-  date: string
-  completed: boolean
-  className?: string
-  note?: string
-  userName?: string
-  icon?: ReactNode
 }
 
 function TimelineItem({
   title,
   date,
   completed,
-  className = "",
   note,
   userName,
-  icon,
-}: TimelineItemProps) {
+}: {
+  title: string
+  date: string
+  completed: boolean
+  note?: string
+  userName?: string
+}) {
   return (
-    <div
-      className={`timeline-item ${className}`}
-    >
-
-      <div
-        className={`timeline-dot ${
-          completed
-            ? "completed"
-            : ""
-        }`}
-      >
-
-        {completed &&
-          (icon || (
-            <CheckCircle2
-              size={15}
-            />
-          ))}
-
+    <div className="timeline-item">
+      <div className={`timeline-dot ${completed ? "completed" : ""}`}>
+        {completed && <CheckCircle2 size={15} />}
       </div>
-
       <div className="timeline-content">
-
-        <strong>
-          {title}
-        </strong>
-
-        <span>
-          {date}
-        </span>
-
-        {userName && (
-          <small>
-            By {userName}
-          </small>
-        )}
-
-        {note && (
-          <p className="timeline-note">
-            {note}
-          </p>
-        )}
-
+        <strong>{title}</strong>
+        <span>{date}</span>
+        {userName && <small>By {userName}</small>}
+        {note && <p className="timeline-note">{note}</p>}
       </div>
-
     </div>
   )
 }
 
-// =========================================================
-// FORMAT STATUS
-// =========================================================
-// IMPORTANT:
-// This accepts string because new_status comes directly
-// from the backend database.
-
-function formatStatus(
-  status: string
-) {
+function formatStatus(status: string) {
   return status
     .split("-")
-    .map(
-      (word) =>
-        word
-          .charAt(0)
-          .toUpperCase() +
-        word.slice(1)
-    )
     .join(" ")
+    .split("_")
+    .join(" ")
+    .replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
-// =========================================================
-// FORMAT DATE
-// =========================================================
-
-function formatDate(
-  date: string
-) {
-  if (!date) {
-    return "—"
-  }
-
-  return new Date(
-    `${date}T00:00:00`
-  ).toLocaleDateString(
-    "en-IN",
-    {
+function formatDate(date: string) {
+  if (!date) return "—"
+  try {
+    return new Date(date).toLocaleDateString("en-IN", {
       day: "numeric",
       month: "short",
       year: "numeric",
-    }
-  )
+    })
+  } catch {
+    return date
+  }
 }
 
-// =========================================================
-// FORMAT DATE + TIME
-// =========================================================
-
-function formatDateTime(
-  date: string
-) {
-  if (!date) {
-    return "—"
-  }
-
-  return new Date(
-    date
-  ).toLocaleString(
-    "en-IN",
-    {
+function formatDateTime(date: string) {
+  if (!date) return "—"
+  try {
+    return new Date(date).toLocaleString("en-IN", {
       day: "numeric",
       month: "short",
       year: "numeric",
       hour: "numeric",
       minute: "2-digit",
-    }
-  )
+    })
+  } catch {
+    return date
+  }
 }
 
-// =========================================================
-// INITIALS
-// =========================================================
-
-function getInitials(
-  name: string
-) {
+function getInitials(name: string) {
+  if (!name) return "—"
   return name
     .split(" ")
-    .map(
-      (word) =>
-        word[0]
-    )
+    .map((w) => w[0])
     .join("")
     .slice(0, 2)
     .toUpperCase()
 }
-
-export default ComplaintDetails

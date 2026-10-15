@@ -1,5 +1,4 @@
-import type { ReactNode } from "react"
-
+import { useState } from "react"
 import {
   ClipboardList,
   Clock,
@@ -8,478 +7,419 @@ import {
   Plus,
   ChevronRight,
   LogOut,
+  Star,
+  RefreshCw,
 } from "lucide-react"
-
-import { users } from "../data/users"
-
-import type { Complaint } from "../types"
+import type { Complaint, User } from "../types"
+import { api } from "../services/api"
 
 interface StudentDashboardProps {
+  currentUser: User
   complaints: Complaint[]
   onLogout: () => void
   onRaiseComplaint: () => void
   onViewHistory: () => void
   onViewComplaint: (complaint: Complaint) => void
+  onRefresh?: () => void
 }
 
 export default function StudentDashboard({
+  currentUser,
   complaints,
   onLogout,
   onRaiseComplaint,
   onViewHistory,
   onViewComplaint,
+  onRefresh,
 }: StudentDashboardProps) {
-  // Current logged-in student.
-  // This will later come from authentication.
-  const student = users.find(
-    (user) => user.id === "STU001"
-  )
+  const [feedbackModalComplaint, setFeedbackModalComplaint] = useState<Complaint | null>(null)
+  const [feedbackRating, setFeedbackRating] = useState(5)
+  const [feedbackComments, setFeedbackComments] = useState("")
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
 
-  // Only show complaints belonging to this student.
-  const studentComplaints = complaints.filter(
-    (complaint) =>
-      complaint.studentId === "STU001"
-  )
+  // Real statistics calculated from persistent database complaints
+  const total = complaints.length
 
-  // Complaint statistics.
-  const total = studentComplaints.length
-
-  const pending = studentComplaints.filter(
-    (complaint) =>
-      complaint.status === "submitted"
+  const pending = complaints.filter(
+    (c) =>
+      c.status === "submitted" ||
+      c.status === "pending_verification" ||
+      c.status === "needs_information"
   ).length
 
-  const inProgress = studentComplaints.filter(
-    (complaint) =>
-      complaint.status === "assigned" ||
-      complaint.status === "in-progress"
+  const inProgress = complaints.filter(
+    (c) =>
+      c.status === "assigned" ||
+      c.status === "in-progress" ||
+      c.status === "need-material"
   ).length
 
-  const resolved = studentComplaints.filter(
-    (complaint) =>
-      complaint.status === "resolved"
+  const resolved = complaints.filter(
+    (c) => c.status === "resolved" || c.status === "closed"
   ).length
 
-  return (
-    <div className="dashboard">
+  const recentComplaints = complaints.slice(0, 5)
 
-      {/* =====================================================
-          HEADER
-      ===================================================== */}
+  const handleOpenFeedback = (complaint: Complaint, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setFeedbackModalComplaint(complaint)
+    setFeedbackRating(5)
+    setFeedbackComments("")
+    setFeedbackMessage(null)
+  }
 
-      <header className="dashboard-header">
+  const handleSubmitFeedback = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!feedbackModalComplaint) return
+    setIsSubmittingFeedback(true)
 
-        <div>
-          <h1>🏠 HostelFix</h1>
-
-          <p>
-            Hostel Complaint & Maintenance System
-          </p>
-        </div>
-
-        <div className="header-right">
-
-          <div className="student-profile">
-
-            <div className="profile-avatar">
-              {student?.name.charAt(0)}
-            </div>
-
-            <div>
-              <strong>
-                {student?.name}
-              </strong>
-
-              <span>
-                Student
-              </span>
-            </div>
-
-          </div>
-
-          <button
-            className="logout-button"
-            onClick={onLogout}
-            title="Logout"
-          >
-            <LogOut size={17} />
-          </button>
-
-        </div>
-
-      </header>
-
-      {/* =====================================================
-          MAIN CONTENT
-      ===================================================== */}
-
-      <main className="dashboard-content">
-
-        {/* ===================================================
-            WELCOME SECTION
-        =================================================== */}
-
-        <section className="welcome-section">
-
-          <div>
-            <h2>
-              Good morning,{" "}
-              {student?.name.split(" ")[0]} 👋
-            </h2>
-
-            <p>
-              {student?.hostel} · Room{" "}
-              {student?.room}
-            </p>
-          </div>
-
-          <button
-            className="new-complaint-button"
-            onClick={onRaiseComplaint}
-          >
-            <Plus size={18} />
-            Raise Complaint
-          </button>
-
-        </section>
-
-        {/* ===================================================
-            STATISTICS
-        =================================================== */}
-
-        <section className="stats-grid">
-
-          <StatCard
-            title="Total Complaints"
-            value={total}
-            icon={
-              <ClipboardList size={21} />
-            }
-            className="blue"
-          />
-
-          <StatCard
-            title="Pending"
-            value={pending}
-            icon={
-              <AlertCircle size={21} />
-            }
-            className="red"
-          />
-
-          <StatCard
-            title="In Progress"
-            value={inProgress}
-            icon={
-              <Clock size={21} />
-            }
-            className="orange"
-          />
-
-          <StatCard
-            title="Resolved"
-            value={resolved}
-            icon={
-              <CheckCircle size={21} />
-            }
-            className="green"
-          />
-
-        </section>
-
-        {/* ===================================================
-            MY COMPLAINTS
-        =================================================== */}
-
-        <section className="dashboard-section">
-
-          <div className="section-heading">
-
-            <div>
-              <h2>
-                My Complaints
-              </h2>
-
-              <p>
-                Track all your hostel maintenance
-                requests
-              </p>
-            </div>
-
-            <button
-              className="view-all-button"
-              onClick={onViewHistory}
-            >
-              View All
-              <ChevronRight size={16} />
-            </button>
-
-          </div>
-
-          <div className="complaints-list">
-
-            {studentComplaints.map(
-              (complaint) => (
-                <ComplaintCard
-                  key={complaint.id}
-                  complaint={complaint}
-                  onClick={() =>
-                    onViewComplaint(complaint)
-                  }
-                />
-              )
-            )}
-
-            {studentComplaints.length === 0 && (
-              <EmptyComplaints
-                onRaiseComplaint={
-                  onRaiseComplaint
-                }
-              />
-            )}
-
-          </div>
-
-        </section>
-
-        {/* ===================================================
-            STUDENT INFORMATION
-        =================================================== */}
-
-        <section className="info-grid">
-
-          <InfoCard
-            icon="📍"
-            label="Hostel"
-            value={student?.hostel}
-          />
-
-          <InfoCard
-            icon="🚪"
-            label="Room"
-            value={student?.room}
-          />
-
-          <InfoCard
-            icon="📧"
-            label="Email"
-            value={student?.email}
-          />
-
-        </section>
-
-      </main>
-
-    </div>
-  )
-}
-
-/* =========================================================
-   STAT CARD
-   ========================================================= */
-
-function StatCard({
-  title,
-  value,
-  icon,
-  className,
-}: {
-  title: string
-  value: number
-  icon: ReactNode
-  className: string
-}) {
-  return (
-    <div className="stat-card">
-
-      <div
-        className={`stat-icon ${className}`}
-      >
-        {icon}
-      </div>
-
-      <div>
-        <p>
-          {title}
-        </p>
-
-        <h3>
-          {value}
-        </h3>
-      </div>
-
-    </div>
-  )
-}
-
-/* =========================================================
-   COMPLAINT CARD
-   ========================================================= */
-
-function ComplaintCard({
-  complaint,
-  onClick,
-}: {
-  complaint: Complaint
-  onClick: () => void
-}) {
-  const handleKeyDown = (
-    event: React.KeyboardEvent<HTMLDivElement>
-  ) => {
-    if (
-      event.key === "Enter" ||
-      event.key === " "
-    ) {
-      event.preventDefault()
-      onClick()
+    try {
+      await api.complaints.submitFeedback(
+        feedbackModalComplaint.id,
+        feedbackRating,
+        feedbackComments
+      )
+      setFeedbackMessage("Thank you! Your feedback has been recorded.")
+      setTimeout(() => {
+        setFeedbackModalComplaint(null)
+        onRefresh?.()
+      }, 1500)
+    } catch (err: any) {
+      alert(err.message || "Failed to submit feedback")
+    } finally {
+      setIsSubmittingFeedback(false)
     }
   }
 
   return (
-    <div
-      className="complaint-row"
-      onClick={onClick}
-      onKeyDown={handleKeyDown}
-      role="button"
-      tabIndex={0}
-    >
-
-      {/* Complaint information */}
-
-      <div className="complaint-main">
-
-        <div className="complaint-top">
-
-          <span className="complaint-id">
-            {complaint.id}
-          </span>
-
-          <span className="category-badge">
-            {complaint.category}
-          </span>
-
+    <div className="dashboard">
+      {/* Header */}
+      <header className="dashboard-header">
+        <div>
+          <h1>🏠 HostelFix</h1>
+          <p>Hostel Complaint & Maintenance System</p>
         </div>
 
-        <h3>
-          {complaint.title}
-        </h3>
-
-        <p>
-          Room {complaint.room} ·{" "}
-          {complaint.createdAt}
-        </p>
-
-      </div>
-
-      {/* Status and priority */}
-
-      <div className="complaint-meta">
-
-        <span
-          className={`status-badge ${complaint.status}`}
-        >
-          {formatStatus(
-            complaint.status
+        <div className="header-right">
+          {onRefresh && (
+            <button
+              className="logout-button"
+              onClick={onRefresh}
+              title="Refresh Data"
+              style={{ marginRight: "8px" }}
+            >
+              <RefreshCw size={17} />
+            </button>
           )}
-        </span>
 
-        <span
-          className={`priority-badge ${complaint.priority}`}
-        >
-          {formatStatus(
-            complaint.priority
+          <div className="student-profile">
+            <div className="profile-avatar">
+              {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : "S"}
+            </div>
+            <div>
+              <strong>{currentUser.name}</strong>
+              <span>Student</span>
+            </div>
+          </div>
+
+          <button className="logout-button" onClick={onLogout} title="Logout">
+            <LogOut size={17} />
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="dashboard-content">
+        {/* Welcome Section */}
+        <section className="welcome-section">
+          <div>
+            <h2>
+              Welcome back, {currentUser.name.split(" ")[0]} 👋
+            </h2>
+            <p>
+              {currentUser.hostel || "Main Hostel"} · Room {currentUser.room || "Assigned"}
+            </p>
+          </div>
+
+          <button className="new-complaint-button" onClick={onRaiseComplaint}>
+            <Plus size={18} />
+            Raise Complaint
+          </button>
+        </section>
+
+        {/* Statistics Grid */}
+        <section className="stats-grid">
+          <div className="stat-card">
+            <div className="stat-icon stat-total">
+              <ClipboardList size={22} />
+            </div>
+            <div>
+              <span className="stat-value">{total}</span>
+              <span className="stat-label">Total Complaints</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon stat-pending">
+              <Clock size={22} />
+            </div>
+            <div>
+              <span className="stat-value">{pending}</span>
+              <span className="stat-label">Pending Review</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon stat-progress">
+              <AlertCircle size={22} />
+            </div>
+            <div>
+              <span className="stat-value">{inProgress}</span>
+              <span className="stat-label">In Progress</span>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon stat-resolved">
+              <CheckCircle size={22} />
+            </div>
+            <div>
+              <span className="stat-value">{resolved}</span>
+              <span className="stat-label">Resolved</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Recent Activity */}
+        <section className="recent-section">
+          <div className="section-header">
+            <h2>Recent Activity</h2>
+            <button className="view-all-button" onClick={onViewHistory}>
+              View All History <ChevronRight size={16} />
+            </button>
+          </div>
+
+          {recentComplaints.length > 0 ? (
+            <div className="complaints-list">
+              {recentComplaints.map((complaint) => (
+                <div
+                  key={complaint.id}
+                  className="complaint-row"
+                  onClick={() => onViewComplaint(complaint)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") onViewComplaint(complaint)
+                  }}
+                >
+                  <div className="complaint-main">
+                    <div className="complaint-top">
+                      <span className="complaint-id">{complaint.id}</span>
+                      <span className={`status-badge status-${complaint.status}`}>
+                        {complaint.status.replace("-", " ").replace("_", " ")}
+                      </span>
+                      <span className={`priority-badge priority-${complaint.priority}`}>
+                        {complaint.priority}
+                      </span>
+                    </div>
+
+                    <h3>{complaint.title}</h3>
+                    <p>{complaint.description}</p>
+
+                    <div className="complaint-meta">
+                      <span>{complaint.category}</span>
+                      <span>Room {complaint.room}</span>
+                      <span>{complaint.createdAt}</span>
+                      {complaint.assignedStaff && (
+                        <span>Staff: {complaint.assignedStaff}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    {complaint.status === "resolved" && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleOpenFeedback(complaint, e)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          padding: "6px 12px",
+                          borderRadius: "6px",
+                          border: "1px solid #f59e0b",
+                          background: "#fffbeb",
+                          color: "#b45309",
+                          fontSize: "13px",
+                          fontWeight: 500,
+                        }}
+                      >
+                        <Star size={14} /> Leave Feedback
+                      </button>
+                    )}
+                    <span className="complaint-arrow">
+                      <ChevronRight size={20} />
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "60px 20px",
+                background: "white",
+                borderRadius: "16px",
+                border: "1px solid #e2e8f0",
+              }}
+            >
+              <ClipboardList size={38} color="#94a3b8" style={{ marginBottom: "12px" }} />
+              <h3 style={{ margin: "0 0 6px", color: "#1e293b", fontSize: "18px" }}>
+                No complaints submitted yet
+              </h3>
+              <p style={{ margin: "0 0 20px", color: "#64748b", fontSize: "14px" }}>
+                Everything looks good in your room! If you face any maintenance issue, click "Raise Complaint" above.
+              </p>
+              <button className="new-complaint-button" onClick={onRaiseComplaint}>
+                <Plus size={16} /> Raise First Complaint
+              </button>
+            </div>
           )}
-        </span>
+        </section>
+      </main>
 
-        <ChevronRight
-          size={18}
-          className="complaint-arrow"
-        />
+      {/* Feedback Modal */}
+      {feedbackModalComplaint && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(15, 23, 42, 0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+            zIndex: 1000,
+          }}
+          onClick={() => !isSubmittingFeedback && setFeedbackModalComplaint(null)}
+        >
+          <div
+            style={{
+              background: "white",
+              borderRadius: "16px",
+              padding: "28px",
+              maxWidth: "460px",
+              width: "100%",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: "0 0 8px", fontSize: "20px", color: "#0f172a" }}>
+              Resolution Feedback
+            </h2>
+            <p style={{ margin: "0 0 20px", color: "#64748b", fontSize: "14px" }}>
+              How satisfied are you with the resolution of #{feedbackModalComplaint.id}?
+            </p>
 
-      </div>
+            {feedbackMessage ? (
+              <div
+                style={{
+                  padding: "16px",
+                  background: "#f0fdf4",
+                  color: "#166534",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  textAlign: "center",
+                }}
+              >
+                {feedbackMessage}
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitFeedback}>
+                <div style={{ marginBottom: "20px", textAlign: "center" }}>
+                  <label style={{ display: "block", marginBottom: "10px", fontSize: "14px", fontWeight: 600 }}>
+                    Rating (1 to 5 Stars)
+                  </label>
+                  <div style={{ display: "flex", justifyContent: "center", gap: "8px" }}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        type="button"
+                        key={star}
+                        onClick={() => setFeedbackRating(star)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          color: star <= feedbackRating ? "#f59e0b" : "#cbd5e1",
+                          padding: "4px",
+                        }}
+                      >
+                        <Star size={32} fill={star <= feedbackRating ? "#f59e0b" : "none"} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
+                <div style={{ marginBottom: "20px" }}>
+                  <label style={{ display: "block", marginBottom: "6px", fontSize: "14px", fontWeight: 600 }}>
+                    Comments (Optional)
+                  </label>
+                  <textarea
+                    value={feedbackComments}
+                    onChange={(e) => setFeedbackComments(e.target.value)}
+                    placeholder="Share any comments on technician punctuality, work quality, etc."
+                    rows={4}
+                    style={{
+                      width: "100%",
+                      padding: "10px",
+                      borderRadius: "8px",
+                      border: "1px solid #cbd5e1",
+                      fontFamily: "inherit",
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackModalComplaint(null)}
+                    disabled={isSubmittingFeedback}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "8px",
+                      border: "1px solid #cbd5e1",
+                      background: "white",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingFeedback}
+                    style={{
+                      padding: "8px 18px",
+                      borderRadius: "8px",
+                      border: "none",
+                      background: "#2563eb",
+                      color: "white",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isSubmittingFeedback ? "Submitting..." : "Submit Feedback"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
-}
-
-/* =========================================================
-   EMPTY COMPLAINTS
-   ========================================================= */
-
-function EmptyComplaints({
-  onRaiseComplaint,
-}: {
-  onRaiseComplaint: () => void
-}) {
-  return (
-    <div className="empty-state">
-
-      <ClipboardList size={40} />
-
-      <h3>
-        No complaints yet
-      </h3>
-
-      <p>
-        You haven't submitted any complaints.
-      </p>
-
-      <button
-        className="new-complaint-button"
-        onClick={onRaiseComplaint}
-      >
-        <Plus size={17} />
-        Raise Your First Complaint
-      </button>
-
-    </div>
-  )
-}
-
-/* =========================================================
-   INFORMATION CARD
-   ========================================================= */
-
-function InfoCard({
-  icon,
-  label,
-  value,
-}: {
-  icon: string
-  label: string
-  value?: string
-}) {
-  return (
-    <div className="info-card">
-
-      <span className="info-icon">
-        {icon}
-      </span>
-
-      <div>
-        <p>
-          {label}
-        </p>
-
-        <strong>
-          {value || "—"}
-        </strong>
-      </div>
-
-    </div>
-  )
-}
-
-/* =========================================================
-   HELPERS
-   ========================================================= */
-
-function formatStatus(status: string) {
-  return status
-    .replace("-", " ")
-    .replace(
-      /\b\w/g,
-      (letter) =>
-        letter.toUpperCase()
-    )
 }
