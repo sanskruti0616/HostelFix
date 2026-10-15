@@ -1,5 +1,5 @@
-import { useState, useRef } from "react"
-import { ArrowLeft, Send, Upload, X, AlertTriangle, Loader2 } from "lucide-react"
+import { useState, useRef, useEffect } from "react"
+import { ArrowLeft, Send, Upload, X, AlertTriangle, Loader2, Camera } from "lucide-react"
 import type { Complaint, ComplaintCategory, ComplaintPriority, User } from "../types"
 import { api } from "../services/api"
 
@@ -32,7 +32,92 @@ export default function RaiseComplaint({
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
 
+  // Camera capture modal state
+  const [isCameraActive, setIsCameraActive] = useState(false)
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
+  const [isCapturing, setIsCapturing] = useState(false)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Cleanup camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop())
+      }
+    }
+  }, [cameraStream])
+
+  const startCamera = async () => {
+    setFormError(null)
+    if (selectedImages.length >= 5) {
+      setFormError("You can upload a maximum of 5 evidence photographs.")
+      return
+    }
+
+    // Try opening getUserMedia video stream
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        })
+        setCameraStream(stream)
+        setIsCameraActive(true)
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.play()
+        }
+      } catch (err: any) {
+        console.warn("Camera streaming failed, falling back to camera input:", err.message)
+        // Fallback to mobile native camera file input
+        cameraInputRef.current?.click()
+      }
+    } else {
+      cameraInputRef.current?.click()
+    }
+  }
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((t) => t.stop())
+      setCameraStream(null)
+    }
+    setIsCameraActive(false)
+  }
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return
+    setIsCapturing(true)
+
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    canvas.width = video.videoWidth || 640
+    canvas.height = video.videoHeight || 480
+
+    const ctx = canvas.getContext("2d")
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const file = new File([blob], `evidence_camera_${Date.now()}.jpg`, { type: "image/jpeg" })
+            const previewUrl = URL.createObjectURL(file)
+            setSelectedImages((prev) => [...prev, { file, previewUrl }])
+            stopCamera()
+          }
+          setIsCapturing(false)
+        },
+        "image/jpeg",
+        0.88
+      )
+    } else {
+      setIsCapturing(false)
+    }
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormError(null)
@@ -382,10 +467,69 @@ export default function RaiseComplaint({
             )}
 
             {selectedImages.length < 5 && (
-              <label className="upload-box" style={{ cursor: isSubmitting ? "not-allowed" : "pointer" }}>
-                <Upload size={24} />
-                <strong>Upload photographs</strong>
-                <span>PNG, JPG or WebP · Up to 5 images · Maximum 10 MB each</span>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                  gap: "14px",
+                  marginBottom: "12px",
+                }}
+              >
+                {/* 1. TAKE PHOTO */}
+                <button
+                  type="button"
+                  onClick={startCamera}
+                  disabled={isSubmitting}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    padding: "20px 16px",
+                    border: "2px dashed #818cf8",
+                    borderRadius: "14px",
+                    background: "#f5f3ff",
+                    color: "#4f46e5",
+                    cursor: isSubmitting ? "not-allowed" : "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <Camera size={26} />
+                  <strong style={{ fontSize: "14px" }}>Take Photo</strong>
+                  <span style={{ fontSize: "11px", color: "#6b7280" }}>
+                    Capture live photo with device camera
+                  </span>
+                </button>
+
+                {/* 2. UPLOAD IMAGE */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isSubmitting}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    padding: "20px 16px",
+                    border: "2px dashed #cbd5e1",
+                    borderRadius: "14px",
+                    background: "#f8fafc",
+                    color: "#334155",
+                    cursor: isSubmitting ? "not-allowed" : "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <Upload size={26} />
+                  <strong style={{ fontSize: "14px" }}>Upload Image</strong>
+                  <span style={{ fontSize: "11px", color: "#64748b" }}>
+                    Select PNG, JPG, or WebP from device (up to 10MB)
+                  </span>
+                </button>
+
+                {/* Hidden file inputs */}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -395,7 +539,17 @@ export default function RaiseComplaint({
                   onChange={handleFileChange}
                   disabled={isSubmitting}
                 />
-              </label>
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  hidden
+                  onChange={handleFileChange}
+                  disabled={isSubmitting}
+                />
+                <canvas ref={canvasRef} style={{ display: "none" }} />
+              </div>
             )}
           </section>
 
@@ -426,6 +580,126 @@ export default function RaiseComplaint({
           </div>
         </form>
       </main>
+
+      {/* Interactive Camera Viewfinder Modal */}
+      {isCameraActive && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(15, 23, 42, 0.9)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+            zIndex: 9999,
+          }}
+        >
+          <div
+            style={{
+              background: "#0f172a",
+              color: "white",
+              borderRadius: "20px",
+              padding: "20px",
+              width: "100%",
+              maxWidth: "520px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Camera size={20} color="#818cf8" />
+                <strong style={{ fontSize: "16px" }}>Take Complaint Evidence Photo</strong>
+              </div>
+              <button
+                type="button"
+                onClick={stopCamera}
+                style={{
+                  background: "rgba(255, 255, 255, 0.1)",
+                  border: "none",
+                  color: "white",
+                  borderRadius: "50%",
+                  width: "32px",
+                  height: "32px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div
+              style={{
+                position: "relative",
+                borderRadius: "14px",
+                overflow: "hidden",
+                background: "#000",
+                aspectRatio: "4/3",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={stopCamera}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: "10px",
+                  border: "1px solid #334155",
+                  background: "transparent",
+                  color: "#cbd5e1",
+                  fontSize: "14px",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={capturePhoto}
+                disabled={isCapturing}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "10px 22px",
+                  borderRadius: "10px",
+                  border: "none",
+                  background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                  color: "white",
+                  fontWeight: 600,
+                  fontSize: "14px",
+                  cursor: "pointer",
+                }}
+              >
+                <Camera size={18} />
+                {isCapturing ? "Capturing..." : "Capture Photo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

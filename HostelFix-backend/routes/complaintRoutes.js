@@ -60,7 +60,12 @@ function formatComplaint(c) {
     verification: c.verification || undefined,
     duplicateOf: c.duplicateOf || undefined,
     resolvedAt: c.resolvedAt,
+    resolvedBy: c.resolvedBy,
+    workNotes: c.workNotes || "",
     closedAt: c.closedAt,
+    rating: c.rating,
+    ratingComments: c.ratingComments || "",
+    ratedAt: c.ratedAt,
     createdAt: c.createdAt ? c.createdAt.toISOString() : new Date().toISOString(),
     updatedAt: c.updatedAt ? c.updatedAt.toISOString() : new Date().toISOString(),
   }
@@ -614,6 +619,10 @@ router.patch("/complaints/:id/status", authenticate, async (req, res) => {
     complaint.status = status
     if (status === COMPLAINT_STATUS.RESOLVED) {
       complaint.resolvedAt = new Date()
+      complaint.resolvedBy = req.user._id
+      if (note) {
+        complaint.workNotes = String(note).trim()
+      }
     } else if (status === COMPLAINT_STATUS.CLOSED) {
       complaint.closedAt = new Date()
     }
@@ -707,8 +716,10 @@ router.get("/complaints/:id/updates", authenticate, async (req, res) => {
  */
 router.post("/complaints/:id/feedback", authenticate, authorizeRoles(ROLES.STUDENT), async (req, res) => {
   try {
-    const { rating, comments = "" } = req.body
-    if (!rating || Number(rating) < 1 || Number(rating) > 5) {
+    const { rating, comments = "", workQuality, timeliness, professionalism } = req.body
+    const numericRating = Number(rating)
+
+    if (!numericRating || numericRating < 1 || numericRating > 5) {
       return res.status(400).json({ success: false, message: "Rating must be an integer between 1 and 5" })
     }
 
@@ -720,27 +731,96 @@ router.post("/complaints/:id/feedback", authenticate, authorizeRoles(ROLES.STUDE
       return res.status(404).json({ success: false, message: "Complaint not found" })
     }
 
+    // 1. Verify student ownership
     if (complaint.createdBy.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: "Only the student who filed this complaint can submit feedback" })
     }
 
+    // 2. Verify complaint is in resolved or closed state
+    if (complaint.status !== COMPLAINT_STATUS.RESOLVED && complaint.status !== COMPLAINT_STATUS.CLOSED) {
+      return res.status(400).json({
+        success: false,
+        message: "Feedback can only be submitted after the complaint has been marked as resolved by maintenance staff.",
+      })
+    }
+
+    // 3. Verify associated maintenance staff member
+    const staffId = complaint.assignedTo && complaint.assignedTo.staffId ? complaint.assignedTo.staffId : null
+    if (!staffId) {
+      return res.status(400).json({
+        success: false,
+        message: "A maintenance staff member must be assigned to this ticket before submitting a rating.",
+      })
+    }
+
+    // Validate optional dimensions if provided
+    const cleanDimensions = {}
+    if (workQuality !== undefined) {
+      const wq = Number(workQuality)
+      if (wq >= 1 && wq <= 5) cleanDimensions.workQuality = wq
+    }
+    if (timeliness !== undefined) {
+      const tm = Number(timeliness)
+      if (tm >= 1 && tm <= 5) cleanDimensions.timeliness = tm
+    }
+    if (professionalism !== undefined) {
+      const pf = Number(professionalism)
+      if (pf >= 1 && pf <= 5) cleanDimensions.professionalism = pf
+    }
+
+    // 4. Upsert feedback in Feedback model
     const feedback = await Feedback.findOneAndUpdate(
       { complaintId: complaint._id },
-      { submittedBy: req.user._id, rating: Number(rating), comments },
+      {
+        submittedBy: req.user._id,
+        staffId,
+        rating: numericRating,
+        comments: String(comments).trim().slice(0, 500),
+        ...cleanDimensions,
+      },
       { upsert: true, new: true }
     )
 
-    // Close complaint upon feedback
+    // 5. Update complaint record and close complaint
+    complaint.rating = numericRating
+    complaint.ratingComments = String(comments).trim().slice(0, 500)
+    complaint.ratedAt = new Date()
     complaint.status = COMPLAINT_STATUS.CLOSED
     complaint.closedAt = new Date()
     await complaint.save()
 
+    // 6. Record status history audit
+    await ComplaintStatusHistory.create({
+      complaintId: complaint._id,
+      previousStatus: COMPLAINT_STATUS.RESOLVED,
+      newStatus: COMPLAINT_STATUS.CLOSED,
+      changedBy: req.user._id,
+      changedByName: req.user.name,
+      changedByRole: req.user.role,
+      remarks: `Student rated service ${numericRating}/5 stars. Complaint closed.`,
+      timestamp: new Date(),
+    })
+
+    // 7. Notify staff of rating
+    await sendNotification({
+      recipientUserId: staffId,
+      complaintId: complaint._id,
+      complaintNumber: complaint.complaintNumber,
+      type: "feedback_received",
+      title: "Student Rating Received",
+      message: `Student left a ${numericRating}-star review on #${complaint.complaintNumber}.`,
+    })
+
+    broadcast("complaint:updated", formatComplaint(complaint))
+
     res.json({
       success: true,
-      message: "Feedback submitted successfully. Complaint is now closed.",
+      message: "Feedback submitted successfully. Thank you for rating the service!",
       feedback,
+      complaint: formatComplaint(complaint),
     })
   } catch (error) {
+    console.error("[Complaints] Feedback error:", error.message)
     res.status(500).json({ success: false, message: "Failed to submit feedback" })
   }
 })

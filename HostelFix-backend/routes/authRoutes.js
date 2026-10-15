@@ -2,6 +2,8 @@ const express = require("express")
 const router = express.Router()
 const {
   authenticateGoogleUser,
+  authenticateLocalUser,
+  authenticateDemoRole,
   authenticateDevUser,
 } = require("../services/authService")
 const { authenticate } = require("../middleware/auth")
@@ -34,6 +36,7 @@ router.post("/auth/google", async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        username: user.username,
         role: user.role,
         profileImage: user.profileImage,
         hostelName: user.hostelName,
@@ -46,6 +49,88 @@ router.post("/auth/google", async (req, res) => {
     res.status(error.statusCode || 401).json({
       success: false,
       message: error.message || "Google authentication failed",
+    })
+  }
+})
+
+/**
+ * @route   POST /api/auth/login
+ * @desc    Manual email/username and password login
+ * @access  Public
+ */
+router.post("/auth/login", async (req, res) => {
+  try {
+    const { identifier, password } = req.body
+    if (!identifier || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide your email/username and password",
+      })
+    }
+
+    const { user, token } = await authenticateLocalUser(identifier, password)
+
+    res.json({
+      success: true,
+      message: "Login successful",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        profileImage: user.profileImage,
+        hostelName: user.hostelName,
+        roomNumber: user.roomNumber,
+        phone: user.phone,
+      },
+    })
+  } catch (error) {
+    res.status(error.statusCode || 401).json({
+      success: false,
+      message: error.message || "Invalid credentials",
+    })
+  }
+})
+
+/**
+ * @route   POST /api/auth/demo-login
+ * @desc    Authenticate with predefined authorized demo account by role
+ * @access  Public
+ */
+router.post("/auth/demo-login", async (req, res) => {
+  try {
+    const { role } = req.body
+    if (!role) {
+      return res.status(400).json({
+        success: false,
+        message: "Role is required for demo login",
+      })
+    }
+
+    const { user, token } = await authenticateDemoRole(role)
+
+    res.json({
+      success: true,
+      message: `Signed in as demo ${user.role}`,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        profileImage: user.profileImage,
+        hostelName: user.hostelName,
+        roomNumber: user.roomNumber,
+        phone: user.phone,
+      },
+    })
+  } catch (error) {
+    res.status(error.statusCode || 400).json({
+      success: false,
+      message: error.message || "Demo login failed",
     })
   }
 })

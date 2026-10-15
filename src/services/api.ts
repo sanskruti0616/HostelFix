@@ -97,6 +97,32 @@ export const api = {
       return data
     },
 
+    async manualLogin(identifier: string, password: string) {
+      const data = await request<{
+        success: boolean
+        token: string
+        user: User
+      }>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ identifier, password }),
+      })
+      setStoredAuth(data.token, data.user)
+      return data
+    },
+
+    async demoLogin(role: string) {
+      const data = await request<{
+        success: boolean
+        token: string
+        user: User
+      }>("/api/auth/demo-login", {
+        method: "POST",
+        body: JSON.stringify({ role }),
+      })
+      setStoredAuth(data.token, data.user)
+      return data
+    },
+
     async devLogin(email: string) {
       const data = await request<{
         success: boolean
@@ -254,14 +280,21 @@ export const api = {
       }>(`/api/complaints/${idParam}/updates`)
     },
 
-    async submitFeedback(complaintId: string, rating: number, comments: string) {
+    async submitFeedback(
+      complaintId: string,
+      rating: number,
+      comments = "",
+      dimensions?: { workQuality?: number; timeliness?: number; professionalism?: number }
+    ) {
       const idParam = complaintId.replace("HF-", "")
       return request<{
         success: boolean
         message: string
+        feedback: any
+        complaint?: Complaint
       }>(`/api/complaints/${idParam}/feedback`, {
         method: "POST",
-        body: JSON.stringify({ rating, comments }),
+        body: JSON.stringify({ rating, comments, ...dimensions }),
       })
     },
 

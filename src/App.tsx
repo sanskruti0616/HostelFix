@@ -215,6 +215,7 @@ export default function App() {
       return (
         <ComplaintDetails
           complaint={selectedComplaint}
+          currentUser={currentUser}
           onBack={() => setStudentPage("history")}
           onRefreshComplaint={fetchComplaints}
         />
@@ -260,6 +261,7 @@ export default function App() {
       return (
         <ComplaintDetails
           complaint={selectedComplaint}
+          currentUser={currentUser}
           isWarden
           onBack={() => setStudentPage("dashboard")}
           onAssignStaff={(staffName) => handleAssignStaff(selectedComplaint.id, staffName)}
@@ -286,6 +288,7 @@ export default function App() {
       return (
         <ComplaintDetails
           complaint={selectedComplaint}
+          currentUser={currentUser}
           onBack={() => setStudentPage("dashboard")}
           onStatusChange={(status, note) => handleStatusChange(selectedComplaint.id, status, note)}
           onRefreshComplaint={fetchComplaints}
@@ -311,6 +314,7 @@ export default function App() {
       return (
         <ComplaintDetails
           complaint={selectedComplaint}
+          currentUser={currentUser}
           isWarden
           onBack={() => setStudentPage("dashboard")}
           onAssignStaff={(staffName) => handleAssignStaff(selectedComplaint.id, staffName)}

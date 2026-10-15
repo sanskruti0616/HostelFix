@@ -14,9 +14,29 @@ const feedbackSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    staffId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+    },
     rating: {
       type: Number,
       required: true,
+      min: 1,
+      max: 5,
+    },
+    workQuality: {
+      type: Number,
+      min: 1,
+      max: 5,
+    },
+    timeliness: {
+      type: Number,
+      min: 1,
+      max: 5,
+    },
+    professionalism: {
+      type: Number,
       min: 1,
       max: 5,
     },

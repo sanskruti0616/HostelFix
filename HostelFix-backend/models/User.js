@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema(
   {
     authenticationProvider: {
       type: String,
-      enum: ["google", "local_dev", "firebase"],
+      enum: ["google", "local", "local_dev", "firebase"],
       default: "google",
       required: true,
     },
@@ -27,6 +27,20 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       match: [/^\S+@\S+\.\S+$/, "Please provide a valid email address"],
+    },
+    username: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      sparse: true,
+    },
+    passwordHash: {
+      type: String,
+      select: false, // Never return password hash in default queries
+    },
+    isDemoAccount: {
+      type: Boolean,
+      default: false,
     },
     profileImage: {
       type: String,
@@ -79,7 +93,6 @@ const userSchema = new mongoose.Schema(
   }
 )
 
-// Compound index for provider lookup
 userSchema.index({ authenticationProvider: 1, providerUserId: 1 }, { unique: true })
 userSchema.index({ role: 1 })
 userSchema.index({ hostelId: 1 })

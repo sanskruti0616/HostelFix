@@ -11,13 +11,17 @@ import {
   UserRound,
   Wrench,
   X,
+  Star,
+  Check,
+  AlertTriangle,
 } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
-import type { Complaint, ComplaintStatus, ComplaintUpdate } from "../types"
+import type { Complaint, ComplaintStatus, ComplaintUpdate, User } from "../types"
 import { api } from "../services/api"
 
 interface ComplaintDetailsProps {
   complaint: Complaint
+  currentUser?: User | null
   onBack: () => void
   isWarden?: boolean
   onStatusChange?: (status: ComplaintStatus, note?: string) => void
@@ -25,8 +29,17 @@ interface ComplaintDetailsProps {
   onRefreshComplaint?: () => void
 }
 
+const RATING_LABELS: Record<number, string> = {
+  1: "Very poor",
+  2: "Poor",
+  3: "Fair",
+  4: "Good",
+  5: "Excellent",
+}
+
 export default function ComplaintDetails({
   complaint,
+  currentUser,
   onBack,
   isWarden = false,
   onStatusChange,
@@ -38,6 +51,17 @@ export default function ComplaintDetails({
   const [staffOptions, setStaffOptions] = useState<{ id: string; name: string }[]>([])
   const [selectedStaff, setSelectedStaff] = useState(complaint.assignedStaff || "")
   const [activeImageZoom, setActiveImageZoom] = useState<string | null>(null)
+
+  // Student Rating State
+  const [ratingValue, setRatingValue] = useState<number>(5)
+  const [ratingHover, setRatingHover] = useState<number>(0)
+  const [ratingComments, setRatingComments] = useState<string>("")
+  const [workQuality, setWorkQuality] = useState<number>(5)
+  const [timeliness, setTimeliness] = useState<number>(5)
+  const [professionalism, setProfessionalism] = useState<number>(5)
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false)
+  const [ratingSuccess, setRatingSuccess] = useState<string | null>(null)
+  const [ratingError, setRatingError] = useState<string | null>(null)
 
   // Warden verification dialog state
   const [verifyDialogOpen, setVerifyDialogOpen] = useState(false)
@@ -87,6 +111,26 @@ export default function ComplaintDetails({
       alert(err.message || "Failed to update verification")
     } finally {
       setIsSubmittingVerify(false)
+    }
+  }
+
+  const handleRatingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSubmittingRating(true)
+    setRatingError(null)
+    setRatingSuccess(null)
+    try {
+      await api.complaints.submitFeedback(complaint.id, ratingValue, ratingComments, {
+        workQuality,
+        timeliness,
+        professionalism,
+      })
+      setRatingSuccess("Thank you! Your rating and feedback have been recorded.")
+      onRefreshComplaint?.()
+    } catch (err: any) {
+      setRatingError(err.message || "Failed to submit rating. Please try again.")
+    } finally {
+      setIsSubmittingRating(false)
     }
   }
 
@@ -461,37 +505,332 @@ export default function ComplaintDetails({
           </section>
         )}
 
-        {/* Resolution Photographs Gallery (Uploaded by Technician) */}
-        {complaint.resolutionImages && complaint.resolutionImages.length > 0 && (
+        {/* Resolution Details & Photographs (Uploaded by Technician) */}
+        {Boolean(complaint.workNotes || (complaint.resolutionImages && complaint.resolutionImages.length > 0)) && (
           <section className="details-card" style={{ marginTop: "20px", borderLeft: "4px solid #16a34a" }}>
             <div className="details-card-header">
               <CheckCircle2 size={20} color="#16a34a" />
-              <h2>Technician Resolution Photographs</h2>
+              <div>
+                <h2>Technician Resolution &amp; Completion Report</h2>
+                <p>Maintenance completion notes and evidence recorded by technician</p>
+              </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
-              {complaint.resolutionImages.map((img, idx) => {
-                const imageUrl = img.url.startsWith("http")
-                  ? img.url
-                  : `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${img.url}`
-                return (
-                  <div
-                    key={idx}
-                    onClick={() => setActiveImageZoom(imageUrl)}
-                    style={{
-                      borderRadius: "10px",
-                      overflow: "hidden",
-                      border: "1px solid #bbf7d0",
-                      height: "150px",
-                      cursor: "zoom-in",
-                    }}
-                  >
-                    <img src={imageUrl} alt="resolution" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  </div>
-                )
-              })}
+
+            {complaint.workNotes && (
+              <div
+                style={{
+                  padding: "14px 16px",
+                  background: "#f0fdf4",
+                  borderRadius: "10px",
+                  border: "1px solid #bbf7d0",
+                  marginBottom: complaint.resolutionImages && complaint.resolutionImages.length > 0 ? "16px" : "0",
+                }}
+              >
+                <strong style={{ display: "block", fontSize: "13px", color: "#166534", marginBottom: "4px" }}>
+                  Resolution Notes:
+                </strong>
+                <p style={{ margin: 0, fontSize: "14px", color: "#14532d", lineHeight: 1.5 }}>
+                  {complaint.workNotes}
+                </p>
+                {complaint.resolvedAt && (
+                  <small style={{ display: "block", marginTop: "8px", color: "#15803d", fontSize: "12px" }}>
+                    Completed on {formatDate(complaint.resolvedAt)} {complaint.assignedStaff ? `by ${complaint.assignedStaff}` : ""}
+                  </small>
+                )}
+              </div>
+            )}
+
+            {complaint.resolutionImages && complaint.resolutionImages.length > 0 && (
+              <div>
+                <strong style={{ display: "block", fontSize: "13px", color: "#334155", marginBottom: "10px" }}>
+                  Completion Photographs ({complaint.resolutionImages.length}):
+                </strong>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
+                  {complaint.resolutionImages.map((img, idx) => {
+                    const imageUrl = img.url.startsWith("http")
+                      ? img.url
+                      : `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${img.url}`
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => setActiveImageZoom(imageUrl)}
+                        style={{
+                          borderRadius: "10px",
+                          overflow: "hidden",
+                          border: "1px solid #bbf7d0",
+                          height: "150px",
+                          cursor: "zoom-in",
+                        }}
+                      >
+                        <img src={imageUrl} alt="resolution" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Existing Rating Display Card */}
+        {complaint.rating && (
+          <section className="details-card" style={{ marginTop: "20px", borderLeft: "4px solid #f59e0b" }}>
+            <div className="details-card-header">
+              <Star size={20} color="#f59e0b" fill="#f59e0b" />
+              <div>
+                <h2>Student Service Rating &amp; Review</h2>
+                <p>Feedback provided for maintenance resolution</p>
+              </div>
+            </div>
+
+            <div style={{ padding: "16px", background: "#fffbeb", borderRadius: "12px", border: "1px solid #fef3c7" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+                <div style={{ display: "flex", gap: "4px" }}>
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star
+                      key={s}
+                      size={20}
+                      color={s <= complaint.rating! ? "#f59e0b" : "#cbd5e1"}
+                      fill={s <= complaint.rating! ? "#f59e0b" : "none"}
+                    />
+                  ))}
+                </div>
+                <strong style={{ fontSize: "16px", color: "#92400e" }}>
+                  {complaint.rating}/5 · {RATING_LABELS[complaint.rating] || "Rated"}
+                </strong>
+              </div>
+
+              {complaint.ratingComments && (
+                <p style={{ margin: "0 0 10px", fontSize: "14px", color: "#78350f", lineHeight: "1.5" }}>
+                  "{complaint.ratingComments}"
+                </p>
+              )}
+
+              {complaint.ratedAt && (
+                <small style={{ color: "#b45309", fontSize: "12px" }}>
+                  Rated on {formatDate(complaint.ratedAt)}
+                </small>
+              )}
             </div>
           </section>
         )}
+
+        {/* Interactive Student Rating Form (when resolved/closed, staff assigned, and not yet rated) */}
+        {!complaint.rating &&
+          currentUser?.role === "student" &&
+          (complaint.status === "resolved" || complaint.status === "closed") &&
+          Boolean(complaint.assignedStaff || complaint.assignedStaffId) && (
+            <section className="details-card" style={{ marginTop: "20px", borderLeft: "4px solid #6366f1" }}>
+              <div className="details-card-header">
+                <Star size={20} color="#4f46e5" />
+                <div>
+                  <h2>Rate Maintenance Service</h2>
+                  <p>
+                    Please share your experience with the resolution provided by{" "}
+                    <strong>{complaint.assignedStaff || "the technician"}</strong>.
+                  </p>
+                </div>
+              </div>
+
+              {ratingSuccess && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "12px 16px",
+                    marginBottom: "16px",
+                    background: "#f0fdf4",
+                    border: "1px solid #bbf7d0",
+                    borderRadius: "10px",
+                    color: "#15803d",
+                    fontSize: "14px",
+                  }}
+                >
+                  <Check size={18} />
+                  <span>{ratingSuccess}</span>
+                </div>
+              )}
+
+              {ratingError && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "12px 16px",
+                    marginBottom: "16px",
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    borderRadius: "10px",
+                    color: "#b91c1c",
+                    fontSize: "14px",
+                  }}
+                >
+                  <AlertTriangle size={18} />
+                  <span>{ratingError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleRatingSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div>
+                  <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 600 }}>
+                    Overall Rating
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      {[1, 2, 3, 4, 5].map((star) => {
+                        const isFilled = star <= (ratingHover || ratingValue)
+                        return (
+                          <button
+                            type="button"
+                            key={star}
+                            onClick={() => setRatingValue(star)}
+                            onMouseEnter={() => setRatingHover(star)}
+                            onMouseLeave={() => setRatingHover(0)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              padding: "4px",
+                              transition: "transform 0.15s ease",
+                            }}
+                            title={`${star} star: ${RATING_LABELS[star]}`}
+                          >
+                            <Star
+                              size={28}
+                              color={isFilled ? "#f59e0b" : "#cbd5e1"}
+                              fill={isFilled ? "#f59e0b" : "none"}
+                            />
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <span style={{ fontSize: "14px", fontWeight: 600, color: "#d97706" }}>
+                      {RATING_LABELS[ratingHover || ratingValue]}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Additional Dimensions */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: "12px",
+                    padding: "14px",
+                    background: "#f8fafc",
+                    borderRadius: "12px",
+                    border: "1px solid #e2e8f0",
+                  }}
+                >
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#475569", marginBottom: "4px" }}>
+                      Work Quality
+                    </label>
+                    <select
+                      value={workQuality}
+                      onChange={(e) => setWorkQuality(Number(e.target.value))}
+                      style={{ width: "100%", padding: "6px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+                    >
+                      <option value={5}>5 - Excellent</option>
+                      <option value={4}>4 - Good</option>
+                      <option value={3}>3 - Fair</option>
+                      <option value={2}>2 - Poor</option>
+                      <option value={1}>1 - Very Poor</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#475569", marginBottom: "4px" }}>
+                      Timeliness
+                    </label>
+                    <select
+                      value={timeliness}
+                      onChange={(e) => setTimeliness(Number(e.target.value))}
+                      style={{ width: "100%", padding: "6px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+                    >
+                      <option value={5}>5 - Prompt &amp; Fast</option>
+                      <option value={4}>4 - Reasonable</option>
+                      <option value={3}>3 - Acceptable</option>
+                      <option value={2}>2 - Delayed</option>
+                      <option value={1}>1 - Very Late</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#475569", marginBottom: "4px" }}>
+                      Professionalism
+                    </label>
+                    <select
+                      value={professionalism}
+                      onChange={(e) => setProfessionalism(Number(e.target.value))}
+                      style={{ width: "100%", padding: "6px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+                    >
+                      <option value={5}>5 - Highly Courteous</option>
+                      <option value={4}>4 - Professional</option>
+                      <option value={3}>3 - Satisfactory</option>
+                      <option value={2}>2 - Needs Improvement</option>
+                      <option value={1}>1 - Rude</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600 }}>
+                    Written Feedback / Comments (Optional)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={ratingComments}
+                    onChange={(e) => setRatingComments(e.target.value)}
+                    placeholder="Tell us what went well or how the maintenance service could be improved..."
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      border: "1px solid #cbd5e1",
+                      fontSize: "14px",
+                      fontFamily: "inherit",
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingRating}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "10px 24px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                      color: "white",
+                      fontWeight: 700,
+                      fontSize: "14px",
+                      cursor: isSubmittingRating ? "not-allowed" : "pointer",
+                      boxShadow: "0 4px 12px rgba(79, 70, 229, 0.25)",
+                    }}
+                  >
+                    {isSubmittingRating ? (
+                      <>
+                        <LoaderCircle size={16} className="timeline-spinner" />
+                        <span>Submitting Rating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Star size={16} fill="white" />
+                        <span>Submit Rating</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </section>
+          )}
 
         {/* Real Complaint Timeline */}
         <section className="timeline-card" style={{ marginTop: "20px" }}>

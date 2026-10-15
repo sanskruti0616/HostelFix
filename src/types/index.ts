@@ -39,6 +39,7 @@ export interface User {
   id: string
   name: string
   email: string
+  username?: string
   role: UserRole
   hostel?: string
   room?: string
@@ -112,7 +113,12 @@ export interface Complaint {
   verification?: VerificationDetails
   duplicateOf?: string
   resolvedAt?: string
+  resolvedBy?: string
+  workNotes?: string
   closedAt?: string
+  rating?: number
+  ratingComments?: string
+  ratedAt?: string
   createdAt: string
   updatedAt: string
 }

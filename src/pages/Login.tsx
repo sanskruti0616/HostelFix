@@ -1,5 +1,22 @@
 import { useState, useEffect, useRef } from "react"
-import { Home, LogIn, ShieldCheck, Wrench, UserRound, AlertCircle, Loader2 } from "lucide-react"
+import {
+  Home,
+  ShieldCheck,
+  Wrench,
+  UserRound,
+  AlertCircle,
+  Loader2,
+  Eye,
+  EyeOff,
+  Mail,
+  Lock,
+  CheckCircle2,
+  Sparkles,
+  Camera,
+  Star,
+  Clock,
+  ArrowRight,
+} from "lucide-react"
 import type { User, UserRole } from "../types"
 import { api } from "../services/api"
 
@@ -7,45 +24,60 @@ interface LoginProps {
   onLoginSuccess: (user: User) => void
 }
 
-const roleDetails = {
-  student: {
-    label: "Student",
-    description: "Raise and track hostel complaints",
-    email: "sanskruti@hostelfix.com",
-    icon: UserRound,
-  },
-  warden: {
-    label: "Warden",
-    description: "Manage complaints and assign staff",
-    email: "warden@hostelfix.com",
-    icon: ShieldCheck,
-  },
-  staff: {
-    label: "Maintenance Staff",
-    description: "Handle assigned maintenance requests",
-    email: "vaishnavi@hostelfix.com",
-    icon: Wrench,
-  },
-  admin: {
-    label: "Administrator",
-    description: "Manage the complete HostelFix system",
-    email: "admin@hostelfix.com",
-    icon: ShieldCheck,
-  },
+interface DemoRoleCard {
+  role: UserRole
+  title: string
+  description: string
+  icon: typeof UserRound
+  demoBadge: string
 }
 
-const staffSeedList = [
-  { name: "Vaishnavi Bhoiwade", email: "vaishnavi@hostelfix.com" },
-  { name: "Bhargavi Borkhade", email: "bhargavi@hostelfix.com" },
-  { name: "Bhavesh Bhut", email: "bhavesh@hostelfix.com" },
-  { name: "Ruturaj Bhome", email: "ruturaj@hostelfix.com" },
+const DEMO_ROLES: DemoRoleCard[] = [
+  {
+    role: "student",
+    title: "Student",
+    description: "Raise complaints and track maintenance progress.",
+    icon: UserRound,
+    demoBadge: "Student Portal",
+  },
+  {
+    role: "warden",
+    title: "Warden",
+    description: "Review complaints, verify issues, and assign staff.",
+    icon: ShieldCheck,
+    demoBadge: "Warden Office",
+  },
+  {
+    role: "staff",
+    title: "Maintenance Staff",
+    description: "Manage assigned work and submit resolution evidence.",
+    icon: Wrench,
+    demoBadge: "Technician Field",
+  },
+  {
+    role: "admin",
+    title: "Administrator",
+    description: "Manage authorized administrative operations.",
+    icon: ShieldCheck,
+    demoBadge: "System Admin",
+  },
 ]
 
 export default function Login({ onLoginSuccess }: LoginProps) {
-  const [role, setRole] = useState<UserRole>("student")
-  const [selectedStaffEmail, setSelectedStaffEmail] = useState(staffSeedList[0].email)
-  const [isLoading, setIsLoading] = useState(false)
+  // Manual credentials form state
+  const [identifier, setIdentifier] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [isManualLoading, setIsManualLoading] = useState(false)
+
+  // Demo account selection state
+  const [selectedDemoRole, setSelectedDemoRole] = useState<UserRole>("student")
+  const [isDemoLoading, setIsDemoLoading] = useState(false)
+
+  // Status feedback
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
   const googleBtnRef = useRef<HTMLDivElement>(null)
 
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || ""
@@ -59,18 +91,17 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
     const handleGoogleCredentialResponse = async (response: any) => {
       try {
-        setIsLoading(true)
         setErrorMessage(null)
+        setSuccessMessage("Verifying Google account...")
         const result = await api.auth.googleLogin(response.credential)
+        setSuccessMessage("Authentication successful! Welcome to HostelFix.")
         onLoginSuccess(result.user)
       } catch (err: any) {
         setErrorMessage(err.message || "Google authentication failed. Please try again.")
-      } finally {
-        setIsLoading(false)
+        setSuccessMessage(null)
       }
     }
 
-    // Load Google script
     const script = document.createElement("script")
     script.src = "https://accounts.google.com/gsi/client"
     script.async = true
@@ -84,8 +115,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         ;(window as any).google.accounts.id.renderButton(googleBtnRef.current, {
           theme: "outline",
           size: "large",
-          width: 320,
+          width: 340,
           text: "continue_with",
+          shape: "pill",
         })
       }
     }
@@ -98,193 +130,303 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     }
   }, [googleClientId, isGoogleConfigured, onLoginSuccess])
 
-  const handleDevLogin = async (e: React.FormEvent) => {
+  // Handle manual username/email + password sign-in
+  const handleManualLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
     setErrorMessage(null)
+    setSuccessMessage(null)
 
+    if (!identifier.trim()) {
+      setErrorMessage("Please enter your email address or username.")
+      return
+    }
+    if (!password) {
+      setErrorMessage("Please enter your password.")
+      return
+    }
+
+    setIsManualLoading(true)
     try {
-      const targetEmail = role === "staff" ? selectedStaffEmail : roleDetails[role].email
-      const result = await api.auth.devLogin(targetEmail)
+      const result = await api.auth.manualLogin(identifier.trim(), password)
+      setSuccessMessage("Sign in successful!")
       onLoginSuccess(result.user)
     } catch (err: any) {
       setErrorMessage(
-        err.message || "Sign in failed. Make sure the backend server is running with 'npm run dev'."
+        err.message || "Invalid credentials. Please verify your email/username and password."
       )
     } finally {
-      setIsLoading(false)
+      setIsManualLoading(false)
     }
   }
 
-  const selectedRole = roleDetails[role]
-  const SelectedIcon = selectedRole.icon
+  // Handle demo role sign-in
+  const handleDemoSignIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setErrorMessage(null)
+    setSuccessMessage(null)
+    setIsDemoLoading(true)
+
+    try {
+      const result = await api.auth.demoLogin(selectedDemoRole)
+      setSuccessMessage(`Signed in as demo ${selectedDemoRole}!`)
+      onLoginSuccess(result.user)
+    } catch (err: any) {
+      setErrorMessage(
+        err.message ||
+          `Demo account for ${selectedDemoRole} could not be authenticated. Ensure backend database is seeded.`
+      )
+    } finally {
+      setIsDemoLoading(false)
+    }
+  }
 
   return (
     <div className="login-page">
-      {/* Left branding section */}
-      <div className="login-brand">
-        <div className="brand-logo">
-          <Home size={30} />
-        </div>
-
-        <h1>HostelFix</h1>
-
-        <p>Smart Hostel Complaint & Maintenance Management System</p>
-
-        <div className="brand-features">
-          <div>
-            <span>✓</span>
-            Easy real-time complaint registration
-          </div>
-          <div>
-            <span>✓</span>
-            AI-assisted verification & duplicate detection
-          </div>
-          <div>
-            <span>✓</span>
-            Multi-device persistent MongoDB Atlas synchronization
-          </div>
-          <div>
-            <span>✓</span>
-            Verified technician assignment & resolution tracking
-          </div>
-        </div>
-      </div>
-
-      {/* Login card */}
       <div className="login-container">
-        <div className="login-card">
-          <div className="mobile-logo">
-            <Home size={28} />
+        {/* ========================================================= */}
+        {/* LEFT SECTION: BRANDING & FEATURE HIGHLIGHTS               */}
+        {/* ========================================================= */}
+        <section className="login-brand" aria-label="HostelFix Overview">
+          <div className="brand-logo" aria-hidden="true">
+            <Home size={34} />
           </div>
 
-          <h2>Welcome to HostelFix</h2>
-          <p className="login-subtitle">Sign in to manage and track hostel services</p>
+          <h1>HostelFix</h1>
+          <p className="brand-tagline">
+            Smart Hostel Complaint &amp; Maintenance Management System
+          </p>
 
+          <div className="brand-features" role="list">
+            <div className="brand-feature-item" role="listitem">
+              <span className="brand-feature-icon" aria-hidden="true">
+                <Clock size={16} />
+              </span>
+              <div>
+                <strong>Real-time complaint tracking</strong>
+                <p>Instant live notifications and state timeline from submission to closure.</p>
+              </div>
+            </div>
+
+            <div className="brand-feature-item" role="listitem">
+              <span className="brand-feature-icon" aria-hidden="true">
+                <Sparkles size={16} />
+              </span>
+              <div>
+                <strong>AI-assisted complaint verification</strong>
+                <p>Gemini Vision AI checks image evidence consistency and flags duplicates.</p>
+              </div>
+            </div>
+
+            <div className="brand-feature-item" role="listitem">
+              <span className="brand-feature-icon" aria-hidden="true">
+                <Camera size={16} />
+              </span>
+              <div>
+                <strong>Image-based issue reporting</strong>
+                <p>Direct camera capture and file uploads stored securely on Cloudinary.</p>
+              </div>
+            </div>
+
+            <div className="brand-feature-item" role="listitem">
+              <span className="brand-feature-icon" aria-hidden="true">
+                <Wrench size={16} />
+              </span>
+              <div>
+                <strong>Maintenance assignment &amp; resolution tracking</strong>
+                <p>Scoped role workflows for Wardens and specialized Maintenance Technicians.</p>
+              </div>
+            </div>
+
+            <div className="brand-feature-item" role="listitem">
+              <span className="brand-feature-icon" aria-hidden="true">
+                <Star size={16} />
+              </span>
+              <div>
+                <strong>Student feedback &amp; staff ratings</strong>
+                <p>Verified 5-star service rating and performance tracking upon resolution.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ========================================================= */}
+        {/* RIGHT SECTION: AUTHENTICATION FORM                        */}
+        {/* ========================================================= */}
+        <main className="login-card" aria-label="Sign In">
+          <div className="mobile-logo">
+            <div className="brand-logo" style={{ margin: "0 auto 12px" }}>
+              <Home size={28} />
+            </div>
+            <h1>HostelFix</h1>
+          </div>
+
+          <div className="login-card-header">
+            <h2>Welcome to HostelFix</h2>
+            <p>Sign in to manage and track hostel services</p>
+          </div>
+
+          {/* Feedback Alerts */}
           {errorMessage && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "12px 16px",
-                marginBottom: "20px",
-                background: "#fef2f2",
-                border: "1px solid #fee2e2",
-                borderRadius: "8px",
-                color: "#b91c1c",
-                fontSize: "14px",
-              }}
-            >
+            <div className="auth-alert error" role="alert">
               <AlertCircle size={18} style={{ flexShrink: 0 }} />
               <span>{errorMessage}</span>
             </div>
           )}
 
-          {/* Google Sign In Button if configured */}
+          {successMessage && (
+            <div className="auth-alert success" role="status">
+              <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
+              <span>{successMessage}</span>
+            </div>
+          )}
+
+          {/* 1. Continue with Google */}
           {isGoogleConfigured && (
-            <div style={{ marginBottom: "24px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div className="google-auth-wrapper">
               <div ref={googleBtnRef} style={{ minHeight: "44px" }} />
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  width: "100%",
-                  margin: "20px 0 10px",
-                  color: "#94a3b8",
-                  fontSize: "13px",
-                }}
-              >
-                <div style={{ flex: 1, height: "1px", background: "#e2e8f0" }} />
-                <span style={{ padding: "0 12px" }}>or sign in with authorized role</span>
-                <div style={{ flex: 1, height: "1px", background: "#e2e8f0" }} />
+              <div className="auth-divider">
+                <span>OR</span>
               </div>
             </div>
           )}
 
-          <form onSubmit={handleDevLogin}>
-            {/* Role selector */}
+          {/* 2. Manual Email / Username and Password Login */}
+          <form onSubmit={handleManualLogin} className="manual-login-form" noValidate>
             <div className="form-group">
-              <label>Select Role</label>
-              <div className="role-grid">
-                {(Object.keys(roleDetails) as UserRole[]).map((roleOption) => {
-                  const RoleIcon = roleDetails[roleOption].icon
-                  return (
-                    <button
-                      type="button"
-                      key={roleOption}
-                      className={`role-option ${role === roleOption ? "selected" : ""}`}
-                      onClick={() => {
-                        setRole(roleOption)
-                        setErrorMessage(null)
-                      }}
-                      disabled={isLoading}
-                    >
-                      <RoleIcon size={20} />
-                      <span>{roleDetails[roleOption].label}</span>
-                    </button>
-                  )
-                })}
+              <label htmlFor="identifier">Email Address or Username</label>
+              <div className="input-with-icon">
+                <Mail size={18} className="input-icon" />
+                <input
+                  id="identifier"
+                  type="text"
+                  placeholder="name@hostelfix.com or username"
+                  value={identifier}
+                  onChange={(e) => {
+                    setIdentifier(e.target.value)
+                    setErrorMessage(null)
+                  }}
+                  autoComplete="username"
+                  disabled={isManualLoading || isDemoLoading}
+                  required
+                />
               </div>
             </div>
 
-            {/* Staff member dropdown */}
-            {role === "staff" && (
-              <div className="form-group">
-                <label htmlFor="staff-member">Select Staff Member</label>
-                <select
-                  id="staff-member"
-                  className="staff-select"
-                  value={selectedStaffEmail}
-                  onChange={(e) => setSelectedStaffEmail(e.target.value)}
-                  disabled={isLoading}
+            <div className="form-group">
+              <label htmlFor="password">Password</label>
+              <div className="input-with-icon">
+                <Lock size={18} className="input-icon" />
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your account password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    setErrorMessage(null)
+                  }}
+                  autoComplete="current-password"
+                  disabled={isManualLoading || isDemoLoading}
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle-btn"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  title={showPassword ? "Hide password" : "Show password"}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  disabled={isManualLoading || isDemoLoading}
                 >
-                  {staffSeedList.map((member) => (
-                    <option key={member.email} value={member.email}>
-                      {member.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Role information card */}
-            <div className="selected-role">
-              <div className="selected-role-icon">
-                <SelectedIcon size={18} />
-              </div>
-              <div>
-                <strong>
-                  {role === "staff"
-                    ? staffSeedList.find((s) => s.email === selectedStaffEmail)?.name
-                    : selectedRole.label}
-                </strong>
-                <span>{selectedRole.description}</span>
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
-            {/* Submit button */}
-            <button type="submit" className="login-button" disabled={isLoading}>
-              {isLoading ? (
+            <button
+              type="submit"
+              className="login-button manual-submit"
+              disabled={isManualLoading || isDemoLoading}
+            >
+              {isManualLoading ? (
                 <>
                   <Loader2 size={18} className="animate-spin" />
-                  Connecting to server...
+                  <span>Verifying credentials...</span>
                 </>
               ) : (
                 <>
-                  <LogIn size={18} />
-                  Sign In as {selectedRole.label}
+                  <span>Sign In</span>
+                  <ArrowRight size={17} />
                 </>
               )}
             </button>
           </form>
 
-          {!isGoogleConfigured && (
-            <p className="demo-note" style={{ marginTop: "16px", color: "#64748b", fontSize: "13px" }}>
-              💡 Connects to authenticated backend at <code>http://localhost:5000</code>. To enable Google Sign-In, add your <code>VITE_GOOGLE_CLIENT_ID</code> to <code>.env</code>.
-            </p>
-          )}
-        </div>
+          {/* Divider */}
+          <div className="auth-divider">
+            <span>OR SIGN IN WITH DEMO ACCOUNT</span>
+          </div>
+
+          {/* 3. Demo Role Selection Section */}
+          <form onSubmit={handleDemoSignIn} className="demo-login-form">
+            <div className="demo-roles-grid" role="radiogroup" aria-label="Select demo role">
+              {DEMO_ROLES.map((demo) => {
+                const IconComponent = demo.icon
+                const isSelected = selectedDemoRole === demo.role
+                return (
+                  <div
+                    key={demo.role}
+                    className={`demo-role-card ${isSelected ? "selected" : ""}`}
+                    onClick={() => {
+                      setSelectedDemoRole(demo.role)
+                      setErrorMessage(null)
+                    }}
+                    role="radio"
+                    aria-checked={isSelected}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        setSelectedDemoRole(demo.role)
+                        setErrorMessage(null)
+                      }
+                    }}
+                  >
+                    <div className="demo-role-header">
+                      <div className="demo-role-icon">
+                        <IconComponent size={18} />
+                      </div>
+                      <span className="demo-role-badge">{demo.demoBadge}</span>
+                    </div>
+                    <strong className="demo-role-name">{demo.title}</strong>
+                    <p className="demo-role-desc">{demo.description}</p>
+                  </div>
+                )
+              })}
+            </div>
+
+            <button
+              type="submit"
+              className="demo-submit-btn"
+              disabled={isManualLoading || isDemoLoading}
+            >
+              {isDemoLoading ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  <span>Authenticating demo {selectedDemoRole}...</span>
+                </>
+              ) : (
+                <>
+                  <span>Sign In with Demo Account ({selectedDemoRole.toUpperCase()})</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Setup / info note */}
+          <p className="demo-info-note">
+            Predefined demo credentials: username <code>student</code>, <code>warden</code>, <code>staff</code>, or <code>admin</code> with password <code>HostelFix@2026</code>. Database records are persisted in MongoDB Atlas.
+          </p>
+        </main>
       </div>
     </div>
   )

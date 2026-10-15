@@ -56,75 +56,99 @@ async function seed() {
   }
   console.log(`[Seed] Rooms verified`)
 
-  // 3. Seed Users
+  // 3. Seed Users with secure bcrypt password hashing
+  const bcrypt = require("bcryptjs")
+  const defaultHash = await bcrypt.hash("HostelFix@2026", 10)
+
   const usersData = [
     {
-      providerUserId: "google_student_001",
+      providerUserId: "local_student_001",
       name: "Sanskruti Bhosale",
       email: "sanskruti@hostelfix.com",
+      username: "student",
       role: ROLES.STUDENT,
       hostelId: primaryHostel._id,
       hostelName: primaryHostel.name,
       roomNumber: "A-204",
       phone: "9876543210",
       accountStatus: "active",
-      authenticationProvider: "local_dev",
+      authenticationProvider: "local",
+      isDemoAccount: true,
+      passwordHash: defaultHash,
     },
     {
-      providerUserId: "google_warden_001",
+      providerUserId: "local_warden_001",
       name: "Priya Sharma",
       email: "warden@hostelfix.com",
+      username: "warden",
       role: ROLES.WARDEN,
       hostelId: primaryHostel._id,
       hostelName: primaryHostel.name,
       phone: "9876543201",
       accountStatus: "active",
-      authenticationProvider: "local_dev",
+      authenticationProvider: "local",
+      isDemoAccount: true,
+      passwordHash: defaultHash,
     },
     {
-      providerUserId: "google_staff_001",
+      providerUserId: "local_staff_001",
       name: "Vaishnavi Bhoiwade",
       email: "vaishnavi@hostelfix.com",
+      username: "staff",
       role: ROLES.STAFF,
       phone: "9876543211",
       accountStatus: "active",
-      authenticationProvider: "local_dev",
+      authenticationProvider: "local",
+      isDemoAccount: true,
+      passwordHash: defaultHash,
     },
     {
-      providerUserId: "google_staff_002",
+      providerUserId: "local_staff_002",
       name: "Bhargavi Borkhade",
       email: "bhargavi@hostelfix.com",
+      username: "bhargavi",
       role: ROLES.STAFF,
       phone: "9876543212",
       accountStatus: "active",
-      authenticationProvider: "local_dev",
+      authenticationProvider: "local",
+      isDemoAccount: true,
+      passwordHash: defaultHash,
     },
     {
-      providerUserId: "google_staff_003",
+      providerUserId: "local_staff_003",
       name: "Bhavesh Bhut",
       email: "bhavesh@hostelfix.com",
+      username: "bhavesh",
       role: ROLES.STAFF,
       phone: "9876543213",
       accountStatus: "active",
-      authenticationProvider: "local_dev",
+      authenticationProvider: "local",
+      isDemoAccount: true,
+      passwordHash: defaultHash,
     },
     {
-      providerUserId: "google_staff_004",
+      providerUserId: "local_staff_004",
       name: "Ruturaj Bhome",
       email: "ruturaj@hostelfix.com",
+      username: "ruturaj",
       role: ROLES.STAFF,
       phone: "9876543214",
       accountStatus: "active",
-      authenticationProvider: "local_dev",
+      authenticationProvider: "local",
+      isDemoAccount: true,
+      passwordHash: defaultHash,
     },
     {
-      providerUserId: "google_admin_001",
+      providerUserId: "local_admin_001",
       name: "HostelFix Admin",
       email: "admin@hostelfix.com",
+      username: "admin",
       role: ROLES.ADMIN,
       phone: "9876543200",
       accountStatus: "active",
-      authenticationProvider: "local_dev",
+      authenticationProvider: "local",
+      isDemoAccount: true,
+      passwordHash: defaultHash,
     },
   ]
 
@@ -132,7 +156,7 @@ async function seed() {
   for (const uData of usersData) {
     const user = await User.findOneAndUpdate(
       { email: uData.email },
-      uData,
+      { $set: uData },
       { upsert: true, new: true }
     )
     seededUsers[uData.email] = user

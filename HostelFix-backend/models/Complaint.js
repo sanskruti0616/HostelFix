@@ -129,7 +129,32 @@ const complaintSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    resolvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    workNotes: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     closedAt: {
+      type: Date,
+      default: null,
+    },
+    rating: {
+      type: Number,
+      min: 1,
+      max: 5,
+      default: null,
+    },
+    ratingComments: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    ratedAt: {
       type: Date,
       default: null,
     },
@@ -139,8 +164,7 @@ const complaintSchema = new mongoose.Schema(
   }
 )
 
-// Primary and composite indexes
-complaintSchema.index({ complaintNumber: 1 }, { unique: true })
+// Composite and search indexes
 complaintSchema.index({ createdBy: 1, createdAt: -1 })
 complaintSchema.index({ hostelId: 1, status: 1 })
 complaintSchema.index({ "assignedTo.staffId": 1, status: 1 })

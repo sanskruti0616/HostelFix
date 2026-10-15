@@ -123,6 +123,100 @@ async function authenticateGoogleUser(idToken) {
   return { user, token }
 }
 
+const bcrypt = require("bcryptjs")
+
+/**
+ * Predefined demo accounts map
+ */
+const DEMO_ACCOUNT_EMAILS = {
+  student: "sanskruti@hostelfix.com",
+  warden: "warden@hostelfix.com",
+  staff: "vaishnavi@hostelfix.com",
+  admin: "admin@hostelfix.com",
+}
+
+/**
+ * Authenticate via email/username and password
+ */
+async function authenticateLocalUser(identifier, password) {
+  if (!identifier || !password) {
+    const error = new Error("Email/username and password are required")
+    error.statusCode = 400
+    throw error
+  }
+
+  const cleanIdentifier = String(identifier).trim().toLowerCase()
+
+  // Find user by email OR username, explicitly requesting passwordHash
+  const user = await User.findOne({
+    $or: [{ email: cleanIdentifier }, { username: cleanIdentifier }],
+  }).select("+passwordHash")
+
+  if (!user || !user.passwordHash) {
+    const error = new Error("Invalid email/username or password")
+    error.statusCode = 401
+    throw error
+  }
+
+  const isMatch = await bcrypt.compare(String(password), user.passwordHash)
+  if (!isMatch) {
+    const error = new Error("Invalid email/username or password")
+    error.statusCode = 401
+    throw error
+  }
+
+  if (user.accountStatus === "suspended") {
+    const error = new Error("This account has been suspended. Please contact the hostel administration.")
+    error.statusCode = 403
+    throw error
+  }
+
+  user.lastLoginAt = new Date()
+  await user.save()
+
+  const token = generateToken(user)
+  return { user, token }
+}
+
+/**
+ * Authenticate predefined demo account by role
+ */
+async function authenticateDemoRole(role) {
+  const cleanRole = String(role).trim().toLowerCase()
+  if (!Object.values(ROLES).includes(cleanRole)) {
+    const error = new Error(`Invalid demo role '${role}' requested`)
+    error.statusCode = 400
+    throw error
+  }
+
+  const expectedEmail = DEMO_ACCOUNT_EMAILS[cleanRole]
+  let user = await User.findOne({ email: expectedEmail })
+
+  if (!user) {
+    user = await User.findOne({ role: cleanRole, isDemoAccount: true })
+  }
+
+  if (!user) {
+    const error = new Error(
+      `Demo account for role '${cleanRole}' not found in database. Run 'npm run seed' in HostelFix-backend to provision demo accounts.`
+    )
+    error.statusCode = 404
+    throw error
+  }
+
+  if (user.accountStatus === "suspended") {
+    const error = new Error("This demo account has been suspended.")
+    error.statusCode = 403
+    throw error
+  }
+
+  user.lastLoginAt = new Date()
+  await user.save()
+
+  const token = generateToken(user)
+  return { user, token }
+}
+
 /**
  * Development authentication helper for switching between authorized seed roles
  */
@@ -150,5 +244,7 @@ module.exports = {
   generateToken,
   verifyGoogleIdToken,
   authenticateGoogleUser,
+  authenticateLocalUser,
+  authenticateDemoRole,
   authenticateDevUser,
 }
