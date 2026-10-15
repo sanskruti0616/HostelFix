@@ -1,16 +1,25 @@
 import { useState, useMemo, useRef } from "react"
 import {
   AlertCircle,
+  Briefcase,
+  Building,
   Camera,
   CheckCircle2,
   ChevronRight,
   Clock3,
+  History,
   LogOut,
+  Mail,
   Package,
+  Phone,
   RefreshCw,
   RotateCcw,
+  Save,
   Search,
+  Shield,
+  Star,
   Upload,
+  User as UserIcon,
   Wrench,
   X,
 } from "lucide-react"
@@ -34,7 +43,20 @@ export default function StaffDashboard({
   onStatusChange,
   onRefresh,
 }: StaffDashboardProps) {
+  const [activeTab, setActiveTab] = useState<"assigned" | "history" | "profile">("assigned")
   const [search, setSearch] = useState("")
+  const [historySearch, setHistorySearch] = useState("")
+
+  // Profile edit state
+  const [phoneInput, setPhoneInput] = useState(currentUser.phone || "")
+  const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const [profileSaveSuccess, setProfileSaveSuccess] = useState<string | null>(null)
+  const [profileSaveError, setProfileSaveError] = useState<string | null>(null)
+
+  // Zoom modal for photos
+  const [zoomImage, setZoomImage] = useState<string | null>(null)
+
+  // Resolution modal state
   const [resolutionModalComplaint, setResolutionModalComplaint] = useState<Complaint | null>(null)
   const [workPerformed, setWorkPerformed] = useState("Parts Replaced / Repaired")
   const [resolutionNotes, setResolutionNotes] = useState("")
@@ -57,17 +79,46 @@ export default function StaffDashboard({
     })
   }, [complaints, currentUser])
 
-  const filteredComplaints = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return assignedComplaints
+  // Active / pending tasks
+  const activeTasks = useMemo(() => {
     return assignedComplaints.filter(
+      (c) => c.status !== "resolved" && c.status !== "closed"
+    )
+  }, [assignedComplaints])
+
+  const filteredActiveTasks = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return activeTasks
+    return activeTasks.filter(
       (c) =>
         c.title.toLowerCase().includes(query) ||
         c.room.toLowerCase().includes(query) ||
         c.category.toLowerCase().includes(query) ||
-        c.id.toLowerCase().includes(query)
+        c.id.toLowerCase().includes(query) ||
+        c.studentName.toLowerCase().includes(query)
     )
-  }, [assignedComplaints, search])
+  }, [activeTasks, search])
+
+  // Completed work history
+  const completedComplaints = useMemo(() => {
+    return assignedComplaints.filter(
+      (c) => c.status === "resolved" || c.status === "closed"
+    )
+  }, [assignedComplaints])
+
+  const filteredHistory = useMemo(() => {
+    const query = historySearch.trim().toLowerCase()
+    if (!query) return completedComplaints
+    return completedComplaints.filter(
+      (c) =>
+        c.title.toLowerCase().includes(query) ||
+        c.room.toLowerCase().includes(query) ||
+        c.category.toLowerCase().includes(query) ||
+        c.id.toLowerCase().includes(query) ||
+        c.studentName.toLowerCase().includes(query) ||
+        (c.workNotes && c.workNotes.toLowerCase().includes(query))
+    )
+  }, [completedComplaints, historySearch])
 
   // Real statistics
   const totalAssigned = assignedComplaints.length
@@ -75,9 +126,7 @@ export default function StaffDashboard({
   const inProgress = assignedComplaints.filter(
     (c) => c.status === "in-progress" || c.status === "need-material"
   ).length
-  const resolved = assignedComplaints.filter(
-    (c) => c.status === "resolved" || c.status === "closed"
-  ).length
+  const resolved = completedComplaints.length
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -175,8 +224,21 @@ export default function StaffDashboard({
   const handleSubmitResolution = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!resolutionModalComplaint) return
-    setIsUploadingResolution(true)
 
+    if (
+      resolutionFiles.length === 0 &&
+      (!resolutionModalComplaint.resolutionImages || resolutionModalComplaint.resolutionImages.length === 0)
+    ) {
+      alert("A completion photograph is mandatory before marking this complaint as resolved.")
+      return
+    }
+
+    if (!resolutionNotes.trim()) {
+      alert("Please enter resolution notes describing the work completed.")
+      return
+    }
+
+    setIsUploadingResolution(true)
     const fullNotes = `[${workPerformed}] ${resolutionNotes.trim()}`
 
     try {
@@ -195,10 +257,31 @@ export default function StaffDashboard({
       )
 
       handleCloseResolutionModal()
+      if (onRefresh) onRefresh()
     } catch (err: any) {
       alert(err.message || "Failed to mark as completed")
     } finally {
       setIsUploadingResolution(false)
+    }
+  }
+
+  // Handle phone update in profile
+  const handleSavePhone = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSavingProfile(true)
+    setProfileSaveSuccess(null)
+    setProfileSaveError(null)
+
+    try {
+      await api.auth.updateProfile({ phone: phoneInput.trim() })
+      setProfileSaveSuccess("Phone number updated successfully!")
+      currentUser.phone = phoneInput.trim()
+      if (onRefresh) onRefresh()
+      setTimeout(() => setProfileSaveSuccess(null), 3000)
+    } catch (err: any) {
+      setProfileSaveError(err.message || "Failed to update phone number")
+    } finally {
+      setIsSavingProfile(false)
     }
   }
 
@@ -213,7 +296,7 @@ export default function StaffDashboard({
           <div>
             <h2>HostelFix</h2>
             <span>
-              Maintenance Staff Portal {currentUser.organizationName ? `· ${currentUser.organizationName}` : ""}
+              Maintenance Staff Portal {currentUser.hostel ? `· ${currentUser.hostel}` : ""}
             </span>
           </div>
         </div>
@@ -236,7 +319,7 @@ export default function StaffDashboard({
 
           <div className="header-user-info">
             <strong>{currentUser.name}</strong>
-            <span>Technician</span>
+            <span>{currentUser.specialization || "Technician"}</span>
           </div>
 
           <button className="header-logout" onClick={onLogout} title="Logout">
@@ -247,239 +330,829 @@ export default function StaffDashboard({
 
       {/* Main Content */}
       <main className="dashboard-main">
-        {/* Welcome */}
+        {/* Welcome Section */}
         <section className="welcome-section">
           <div>
             <p className="eyebrow">
               <Wrench size={15} />
-              MAINTENANCE TASK LIST
+              MAINTENANCE PORTAL
             </p>
             <h1>Hello, {currentUser.name} 👋</h1>
-            <p>You have {pending + inProgress} active maintenance tasks to attend to.</p>
+            <p>
+              Specialization: <strong>{currentUser.specialization || "General Maintenance"}</strong> · Assigned to {currentUser.hostel || "your hostel property"}.
+            </p>
           </div>
         </section>
 
-        {/* Stats Grid */}
-        <section className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-icon stat-total">
-              <Wrench size={22} />
-            </div>
-            <div>
-              <span className="stat-value">{totalAssigned}</span>
-              <span className="stat-label">Assigned Tasks</span>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon stat-pending">
-              <Clock3 size={22} />
-            </div>
-            <div>
-              <span className="stat-value">{pending}</span>
-              <span className="stat-label">Pending Acceptance</span>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon stat-progress">
-              <AlertCircle size={22} />
-            </div>
-            <div>
-              <span className="stat-value">{inProgress}</span>
-              <span className="stat-label">In Progress</span>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon stat-resolved">
-              <CheckCircle2 size={22} />
-            </div>
-            <div>
-              <span className="stat-value">{resolved}</span>
-              <span className="stat-label">Completed</span>
-            </div>
-          </div>
-        </section>
-
-        {/* Search */}
-        <div style={{ margin: "24px 0", position: "relative" }}>
-          <Search
-            size={18}
-            style={{ position: "absolute", left: "14px", top: "12px", color: "#94a3b8" }}
-          />
-          <input
-            type="text"
-            placeholder="Search your assigned tasks by ID, room, or problem..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+        {/* Tab Switcher */}
+        <div
+          style={{
+            display: "flex",
+            gap: "12px",
+            borderBottom: "2px solid #e2e8f0",
+            marginBottom: "24px",
+            paddingBottom: "4px",
+          }}
+        >
+          <button
+            onClick={() => setActiveTab("assigned")}
             style={{
-              width: "100%",
-              padding: "10px 14px 10px 42px",
-              borderRadius: "10px",
-              border: "1px solid #cbd5e1",
-              fontSize: "14px",
-              background: "white",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 18px",
+              fontSize: "15px",
+              fontWeight: 600,
+              cursor: "pointer",
+              border: "none",
+              borderBottom: activeTab === "assigned" ? "3px solid #4f46e5" : "3px solid transparent",
+              background: "transparent",
+              color: activeTab === "assigned" ? "#4f46e5" : "#64748b",
+              transition: "all 0.15s ease",
             }}
-          />
+          >
+            <Wrench size={18} />
+            Assigned Tasks ({pending + inProgress})
+          </button>
+
+          <button
+            onClick={() => setActiveTab("history")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 18px",
+              fontSize: "15px",
+              fontWeight: 600,
+              cursor: "pointer",
+              border: "none",
+              borderBottom: activeTab === "history" ? "3px solid #4f46e5" : "3px solid transparent",
+              background: "transparent",
+              color: activeTab === "history" ? "#4f46e5" : "#64748b",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <History size={18} />
+            Work History ({resolved})
+          </button>
+
+          <button
+            onClick={() => setActiveTab("profile")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 18px",
+              fontSize: "15px",
+              fontWeight: 600,
+              cursor: "pointer",
+              border: "none",
+              borderBottom: activeTab === "profile" ? "3px solid #4f46e5" : "3px solid transparent",
+              background: "transparent",
+              color: activeTab === "profile" ? "#4f46e5" : "#64748b",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <UserIcon size={18} />
+            My Profile
+          </button>
         </div>
 
-        {/* Tasks List */}
-        <section className="tasks-section">
-          {filteredComplaints.length > 0 ? (
-            <div className="complaints-list">
-              {filteredComplaints.map((complaint) => (
+        {/* TAB 1: ASSIGNED TASKS */}
+        {activeTab === "assigned" && (
+          <>
+            {/* Stats Grid */}
+            <section className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-icon stat-total">
+                  <Wrench size={22} />
+                </div>
+                <div>
+                  <span className="stat-value">{totalAssigned}</span>
+                  <span className="stat-label">Total Assigned</span>
+                </div>
+              </div>
+
+              <div className="stat-card">
+                <div className="stat-icon stat-pending">
+                  <Clock3 size={22} />
+                </div>
+                <div>
+                  <span className="stat-value">{pending}</span>
+                  <span className="stat-label">Awaiting Action</span>
+                </div>
+              </div>
+
+              <div className="stat-card">
+                <div className="stat-icon stat-progress">
+                  <AlertCircle size={22} />
+                </div>
+                <div>
+                  <span className="stat-value">{inProgress}</span>
+                  <span className="stat-label">In Progress</span>
+                </div>
+              </div>
+
+              <div className="stat-card">
+                <div className="stat-icon stat-resolved">
+                  <CheckCircle2 size={22} />
+                </div>
+                <div>
+                  <span className="stat-value">{resolved}</span>
+                  <span className="stat-label">Completed</span>
+                </div>
+              </div>
+            </section>
+
+            {/* Search */}
+            <div style={{ margin: "24px 0", position: "relative" }}>
+              <Search
+                size={18}
+                style={{ position: "absolute", left: "14px", top: "12px", color: "#94a3b8" }}
+              />
+              <input
+                type="text"
+                placeholder="Search active tasks by ID, room, student, or category..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 14px 10px 42px",
+                  borderRadius: "10px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "14px",
+                  background: "white",
+                }}
+              />
+            </div>
+
+            {/* Tasks List */}
+            <section className="tasks-section">
+              {filteredActiveTasks.length > 0 ? (
+                <div className="complaints-list">
+                  {filteredActiveTasks.map((complaint) => (
+                    <div
+                      key={complaint.id}
+                      className="complaint-row"
+                      onClick={() => onViewComplaint(complaint)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") onViewComplaint(complaint)
+                      }}
+                    >
+                      <div className="complaint-main">
+                        <div className="complaint-top">
+                          <span className="complaint-id">{complaint.id}</span>
+                          <span className={`status-badge status-${complaint.status}`}>
+                            {complaint.status.replace("-", " ").replace("_", " ")}
+                          </span>
+                          <span className={`priority-badge priority-${complaint.priority}`}>
+                            {complaint.priority}
+                          </span>
+                        </div>
+
+                        <h3>{complaint.title}</h3>
+                        <p>{complaint.description}</p>
+
+                        <div className="complaint-meta">
+                          <span>🏠 Room {complaint.room}</span>
+                          <span>🏢 {complaint.hostel}</span>
+                          <span>🏷️ {complaint.category}</span>
+                          <span>👤 Student: {complaint.studentName}</span>
+                          <span>📅 Filed: {complaint.createdAt}</span>
+                        </div>
+                      </div>
+
+                      {/* Status Action Buttons */}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          flexWrap: "wrap",
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {complaint.status === "assigned" && (
+                          <button
+                            type="button"
+                            onClick={() => onStatusChange(complaint.id, "in-progress", "Started work on site")}
+                            style={{
+                              padding: "7px 14px",
+                              borderRadius: "6px",
+                              border: "none",
+                              background: "#2563eb",
+                              color: "white",
+                              fontWeight: 600,
+                              fontSize: "13px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Start Work
+                          </button>
+                        )}
+
+                        {complaint.status === "in-progress" && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => onStatusChange(complaint.id, "need-material", "Waiting for replacement parts")}
+                              style={{
+                                padding: "6px 12px",
+                                borderRadius: "6px",
+                                border: "1px solid #f59e0b",
+                                background: "#fffbeb",
+                                color: "#b45309",
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                              }}
+                            >
+                              <Package size={13} style={{ verticalAlign: "middle", marginRight: "4px" }} />
+                              Need Parts
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={(e) => handleOpenResolutionModal(complaint, e)}
+                              style={{
+                                padding: "7px 14px",
+                                borderRadius: "6px",
+                                border: "none",
+                                background: "#16a34a",
+                                color: "white",
+                                fontWeight: 600,
+                                fontSize: "13px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <CheckCircle2 size={14} style={{ verticalAlign: "middle", marginRight: "4px" }} />
+                              Mark Resolved
+                            </button>
+                          </>
+                        )}
+
+                        {complaint.status === "need-material" && (
+                          <button
+                            type="button"
+                            onClick={() => onStatusChange(complaint.id, "in-progress", "Material received, resuming repair")}
+                            style={{
+                              padding: "7px 14px",
+                              borderRadius: "6px",
+                              border: "none",
+                              background: "#2563eb",
+                              color: "white",
+                              fontWeight: 600,
+                              fontSize: "13px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Resume Work
+                          </button>
+                        )}
+
+                        <span className="complaint-arrow">
+                          <ChevronRight size={20} />
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
                 <div
-                  key={complaint.id}
-                  className="complaint-row"
-                  onClick={() => onViewComplaint(complaint)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") onViewComplaint(complaint)
+                  style={{
+                    textAlign: "center",
+                    padding: "60px 20px",
+                    background: "white",
+                    borderRadius: "16px",
+                    border: "1px solid #e2e8f0",
                   }}
                 >
-                  <div className="complaint-main">
-                    <div className="complaint-top">
-                      <span className="complaint-id">{complaint.id}</span>
-                      <span className={`status-badge status-${complaint.status}`}>
-                        {complaint.status.replace("-", " ").replace("_", " ")}
-                      </span>
-                      <span className={`priority-badge priority-${complaint.priority}`}>
-                        {complaint.priority}
-                      </span>
-                    </div>
-
-                    <h3>{complaint.title}</h3>
-                    <p>{complaint.description}</p>
-
-                    <div className="complaint-meta">
-                      <span>🏠 Room {complaint.room}</span>
-                      <span>🏢 {complaint.hostel}</span>
-                      <span>🏷️ {complaint.category}</span>
-                      <span>👤 Student: {complaint.studentName}</span>
-                    </div>
-                  </div>
-
-                  {/* Technician status action buttons */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      flexWrap: "wrap",
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {complaint.status === "assigned" && (
-                      <button
-                        type="button"
-                        onClick={() => onStatusChange(complaint.id, "in-progress", "Started work on site")}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: "6px",
-                          border: "none",
-                          background: "#2563eb",
-                          color: "white",
-                          fontWeight: 600,
-                          fontSize: "13px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Start Work
-                      </button>
-                    )}
-
-                    {complaint.status === "in-progress" && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => onStatusChange(complaint.id, "need-material", "Waiting for replacement parts")}
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: "6px",
-                            border: "1px solid #f59e0b",
-                            background: "#fffbeb",
-                            color: "#b45309",
-                            fontSize: "12px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <Package size={13} style={{ verticalAlign: "middle", marginRight: "4px" }} />
-                          Need Parts
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenResolutionModal(complaint, e)}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: "6px",
-                            border: "none",
-                            background: "#16a34a",
-                            color: "white",
-                            fontWeight: 600,
-                            fontSize: "13px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <CheckCircle2 size={14} style={{ verticalAlign: "middle", marginRight: "4px" }} />
-                          Mark Resolved
-                        </button>
-                      </>
-                    )}
-
-                    {complaint.status === "need-material" && (
-                      <button
-                        type="button"
-                        onClick={() => onStatusChange(complaint.id, "in-progress", "Material received, resuming repair")}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: "6px",
-                          border: "none",
-                          background: "#2563eb",
-                          color: "white",
-                          fontWeight: 600,
-                          fontSize: "13px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Resume Work
-                      </button>
-                    )}
-
-                    <span className="complaint-arrow">
-                      <ChevronRight size={20} />
-                    </span>
-                  </div>
+                  <Wrench size={38} color="#94a3b8" style={{ marginBottom: "12px" }} />
+                  <h3 style={{ margin: "0 0 6px", color: "#1e293b", fontSize: "18px" }}>
+                    No active maintenance tasks
+                  </h3>
+                  <p style={{ margin: 0, color: "#64748b", fontSize: "14px" }}>
+                    {search
+                      ? "No active tasks match your search filter."
+                      : "You currently have no maintenance tasks awaiting action."}
+                  </p>
                 </div>
-              ))}
+              )}
+            </section>
+          </>
+        )}
+
+        {/* TAB 2: WORK HISTORY */}
+        {activeTab === "history" && (
+          <section className="work-history-section">
+            <div style={{ marginBottom: "20px" }}>
+              <h2 style={{ margin: "0 0 4px", fontSize: "20px", color: "#0f172a" }}>
+                Completed Work History
+              </h2>
+              <p style={{ margin: 0, color: "#64748b", fontSize: "14px" }}>
+                Past maintenance jobs completed by you with resolution photographs and student ratings.
+              </p>
             </div>
-          ) : (
+
+            {/* History Search */}
+            <div style={{ marginBottom: "20px", position: "relative" }}>
+              <Search
+                size={18}
+                style={{ position: "absolute", left: "14px", top: "12px", color: "#94a3b8" }}
+              />
+              <input
+                type="text"
+                placeholder="Search completed jobs by room, title, category, or notes..."
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 14px 10px 42px",
+                  borderRadius: "10px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "14px",
+                  background: "white",
+                }}
+              />
+            </div>
+
+            {filteredHistory.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                {filteredHistory.map((complaint) => (
+                  <div
+                    key={complaint.id}
+                    style={{
+                      background: "white",
+                      borderRadius: "12px",
+                      border: "1px solid #e2e8f0",
+                      padding: "20px",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        flexWrap: "wrap",
+                        gap: "10px",
+                        marginBottom: "10px",
+                      }}
+                    >
+                      <div>
+                        <span
+                          style={{
+                            fontWeight: 700,
+                            color: "#4f46e5",
+                            fontSize: "14px",
+                            marginRight: "8px",
+                          }}
+                        >
+                          {complaint.id}
+                        </span>
+                        <span className={`status-badge status-${complaint.status}`}>
+                          {complaint.status}
+                        </span>
+                        <h3 style={{ margin: "6px 0 2px", fontSize: "17px", color: "#0f172a" }}>
+                          {complaint.title}
+                        </h3>
+                        <div style={{ fontSize: "13px", color: "#64748b" }}>
+                          Room {complaint.room} · {complaint.hostel} · Category: {complaint.category} · Student: {complaint.studentName}
+                        </div>
+                      </div>
+
+                      {/* Rating stars if available */}
+                      {complaint.rating ? (
+                        <div
+                          style={{
+                            background: "#fef9c3",
+                            padding: "6px 12px",
+                            borderRadius: "8px",
+                            border: "1px solid #fef08a",
+                            textAlign: "right",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "2px", color: "#ca8a04" }}>
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                size={15}
+                                fill={star <= complaint.rating! ? "#ca8a04" : "none"}
+                              />
+                            ))}
+                            <span style={{ fontWeight: 700, marginLeft: "4px", fontSize: "14px" }}>
+                              {complaint.rating}.0
+                            </span>
+                          </div>
+                          {complaint.ratingComments && (
+                            <div style={{ fontSize: "12px", color: "#854d0e", marginTop: "2px", maxWidth: "220px" }}>
+                              "{complaint.ratingComments}"
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: "12px", color: "#94a3b8", fontStyle: "italic" }}>
+                          Awaiting student review
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Work Notes */}
+                    {complaint.workNotes && (
+                      <div
+                        style={{
+                          background: "#f8fafc",
+                          padding: "10px 14px",
+                          borderRadius: "8px",
+                          borderLeft: "3px solid #16a34a",
+                          marginBottom: "12px",
+                          fontSize: "13px",
+                          color: "#334155",
+                        }}
+                      >
+                        <strong>Resolution Notes:</strong> {complaint.workNotes}
+                      </div>
+                    )}
+
+                    {/* Completion Photographs */}
+                    {complaint.resolutionImages && complaint.resolutionImages.length > 0 ? (
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: 600, color: "#64748b", marginBottom: "6px" }}>
+                          Completion Evidence Photographs:
+                        </div>
+                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                          {complaint.resolutionImages.map((img, i) => (
+                            <img
+                              key={i}
+                              src={img.url}
+                              alt={`Resolution proof ${i + 1}`}
+                              onClick={() => setZoomImage(img.url)}
+                              style={{
+                                width: "80px",
+                                height: "80px",
+                                borderRadius: "8px",
+                                objectFit: "cover",
+                                border: "1px solid #cbd5e1",
+                                cursor: "pointer",
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "12px", color: "#94a3b8" }}>
+                        No completion photographs attached
+                      </div>
+                    )}
+
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginTop: "12px",
+                        paddingTop: "10px",
+                        borderTop: "1px solid #f1f5f9",
+                        fontSize: "12px",
+                        color: "#94a3b8",
+                      }}
+                    >
+                      <span>Completed on: {complaint.resolvedAt || complaint.updatedAt || "N/A"}</span>
+                      <button
+                        onClick={() => onViewComplaint(complaint)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#4f46e5",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          fontSize: "13px",
+                        }}
+                      >
+                        View Full Details →
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "60px 20px",
+                  background: "white",
+                  borderRadius: "16px",
+                  border: "1px solid #e2e8f0",
+                }}
+              >
+                <History size={38} color="#94a3b8" style={{ marginBottom: "12px" }} />
+                <h3 style={{ margin: "0 0 6px", color: "#1e293b", fontSize: "18px" }}>
+                  No completed work recorded
+                </h3>
+                <p style={{ margin: 0, color: "#64748b", fontSize: "14px" }}>
+                  {historySearch
+                    ? "No completed jobs match your search."
+                    : "Jobs you resolve with completion photos will appear here in your work history."}
+                </p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* TAB 3: MY PROFILE */}
+        {activeTab === "profile" && (
+          <section className="staff-profile-section" style={{ maxWidth: "680px" }}>
             <div
               style={{
-                textAlign: "center",
-                padding: "60px 20px",
                 background: "white",
                 borderRadius: "16px",
                 border: "1px solid #e2e8f0",
+                padding: "28px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
               }}
             >
-              <Wrench size={38} color="#94a3b8" style={{ marginBottom: "12px" }} />
-              <h3 style={{ margin: "0 0 6px", color: "#1e293b", fontSize: "18px" }}>
-                No maintenance tasks assigned
-              </h3>
-              <p style={{ margin: 0, color: "#64748b", fontSize: "14px" }}>
-                {search
-                  ? "No tasks match your search filter."
-                  : "You currently have no maintenance assignments pending."}
-              </p>
+              <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "24px" }}>
+                <div
+                  style={{
+                    width: "64px",
+                    height: "64px",
+                    borderRadius: "50%",
+                    background: "#e0e7ff",
+                    color: "#4f46e5",
+                    fontSize: "24px",
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {currentUser.name.slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <h2 style={{ margin: "0 0 4px", fontSize: "20px", color: "#0f172a" }}>
+                    {currentUser.name}
+                  </h2>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      padding: "2px 10px",
+                      borderRadius: "12px",
+                      background: "#dcfce7",
+                      color: "#166534",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Active Technician
+                  </span>
+                </div>
+              </div>
+
+              {profileSaveSuccess && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    background: "#dcfce7",
+                    color: "#166534",
+                    borderRadius: "8px",
+                    marginBottom: "18px",
+                    fontSize: "13px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <CheckCircle2 size={16} />
+                  <span>{profileSaveSuccess}</span>
+                </div>
+              )}
+
+              {profileSaveError && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    background: "#fee2e2",
+                    color: "#991b1b",
+                    borderRadius: "8px",
+                    marginBottom: "18px",
+                    fontSize: "13px",
+                  }}
+                >
+                  {profileSaveError}
+                </div>
+              )}
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#64748b", marginBottom: "4px" }}>
+                    ACCOUNT ROLE
+                  </label>
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      color: "#334155",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <Shield size={16} color="#64748b" />
+                    Maintenance Staff (Technician)
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#64748b", marginBottom: "4px" }}>
+                    SPECIALIZATION
+                  </label>
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      color: "#334155",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <Briefcase size={16} color="#64748b" />
+                    {currentUser.specialization || "General Maintenance"}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#64748b", marginBottom: "4px" }}>
+                    ASSIGNED HOSTEL & PROPERTY
+                  </label>
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      color: "#334155",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <Building size={16} color="#64748b" />
+                    {currentUser.hostel || "All Assigned Hostels"}
+                    {currentUser.organizationName ? ` (${currentUser.organizationName})` : ""}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#64748b", marginBottom: "4px" }}>
+                    EMAIL ADDRESS (LOGIN ID)
+                  </label>
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      color: "#334155",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <Mail size={16} color="#64748b" />
+                    {currentUser.email}
+                  </div>
+                </div>
+
+                {/* Editable Phone Number */}
+                <form onSubmit={handleSavePhone}>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#64748b", marginBottom: "4px" }}>
+                    CONTACT PHONE NUMBER
+                  </label>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <div style={{ flex: 1, position: "relative" }}>
+                      <Phone
+                        size={16}
+                        style={{ position: "absolute", left: "12px", top: "11px", color: "#94a3b8" }}
+                      />
+                      <input
+                        type="tel"
+                        value={phoneInput}
+                        onChange={(e) => setPhoneInput(e.target.value)}
+                        placeholder="Enter your mobile number"
+                        style={{
+                          width: "100%",
+                          padding: "9px 12px 9px 36px",
+                          borderRadius: "8px",
+                          border: "1px solid #cbd5e1",
+                          fontSize: "14px",
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isSavingProfile}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "9px 18px",
+                        background: "#4f46e5",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "8px",
+                        fontWeight: 600,
+                        fontSize: "13px",
+                        cursor: isSavingProfile ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      <Save size={15} />
+                      {isSavingProfile ? "Saving..." : "Save Phone"}
+                    </button>
+                  </div>
+                </form>
+
+                <div
+                  style={{
+                    background: "#eff6ff",
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    fontSize: "12.5px",
+                    color: "#1e40af",
+                    border: "1px solid #bfdbfe",
+                    marginTop: "8px",
+                  }}
+                >
+                  ℹ️ <strong>System Note:</strong> Your hostel property affiliation and maintenance specialization are governed by the Warden. To request transfer or specialization adjustments, contact your hostel administration.
+                </div>
+              </div>
             </div>
-          )}
-        </section>
+          </section>
+        )}
       </main>
 
-      {/* Resolution Photo Upload Modal */}
+      {/* Full-size Image Zoom Modal */}
+      {zoomImage && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.85)",
+            zIndex: 1100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+          onClick={() => setZoomImage(null)}
+        >
+          <div style={{ position: "relative", maxWidth: "90%", maxHeight: "90%" }}>
+            <img
+              src={zoomImage}
+              alt="Enlarged evidence"
+              style={{ maxWidth: "100%", maxHeight: "85vh", borderRadius: "8px", objectFit: "contain" }}
+            />
+            <button
+              onClick={() => setZoomImage(null)}
+              style={{
+                position: "absolute",
+                top: "-36px",
+                right: 0,
+                background: "white",
+                border: "none",
+                borderRadius: "50%",
+                width: "32px",
+                height: "32px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Resolution Photo Upload & Completion Modal */}
       {resolutionModalComplaint && (
         <div
           style={{
@@ -570,7 +1243,7 @@ export default function StaffDashboard({
               {/* Work Notes */}
               <div style={{ marginBottom: "18px" }}>
                 <label style={{ display: "block", marginBottom: "6px", fontSize: "13.5px", fontWeight: 700, color: "#1e293b" }}>
-                  Resolution Notes & Verification Details
+                  Resolution Notes & Verification Details *
                 </label>
                 <textarea
                   value={resolutionNotes}
@@ -593,10 +1266,10 @@ export default function StaffDashboard({
               {/* Completion Photos Section */}
               <div style={{ marginBottom: "22px" }}>
                 <label style={{ display: "block", marginBottom: "6px", fontSize: "13.5px", fontWeight: 700, color: "#1e293b" }}>
-                  Photographic Proof of Resolution
+                  Photographic Proof of Resolution *
                 </label>
                 <p style={{ margin: "0 0 10px", color: "#64748b", fontSize: "12px" }}>
-                  Provide completion photographs to certify work quality before marking resolved.
+                  A completion photograph is mandatory to certify work quality before marking resolved.
                 </p>
 
                 {/* Previews Grid */}
@@ -616,7 +1289,7 @@ export default function StaffDashboard({
                         }}
                       >
                         <img src={url} alt={`completion-${idx}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                        
+
                         {/* Remove Action */}
                         <button
                           type="button"
@@ -681,7 +1354,18 @@ export default function StaffDashboard({
                       textAlign: "center",
                     }}
                   >
-                    <div style={{ position: "relative", borderRadius: "8px", overflow: "hidden", background: "black", minHeight: "220px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div
+                      style={{
+                        position: "relative",
+                        borderRadius: "8px",
+                        overflow: "hidden",
+                        background: "black",
+                        minHeight: "220px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
                       <video
                         ref={videoRef}
                         autoPlay
@@ -690,7 +1374,18 @@ export default function StaffDashboard({
                         style={{ width: "100%", maxHeight: "240px", objectFit: "cover" }}
                       />
                       {cameraError && (
-                        <div style={{ position: "absolute", inset: 0, padding: "20px", background: "rgba(15, 23, 42, 0.9)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                        <div
+                          style={{
+                            position: "absolute",
+                            inset: 0,
+                            padding: "20px",
+                            background: "rgba(15, 23, 42, 0.9)",
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
                           <AlertCircle size={28} color="#ef4444" style={{ marginBottom: "8px" }} />
                           <p style={{ margin: 0, fontSize: "12.5px", color: "#fca5a5" }}>{cameraError}</p>
                         </div>
@@ -726,117 +1421,123 @@ export default function StaffDashboard({
                           padding: "8px 14px",
                           borderRadius: "8px",
                           border: "1px solid #475569",
-                          background: "#1e293b",
-                          color: "white",
+                          background: "transparent",
+                          color: "#cbd5e1",
                           fontSize: "13px",
                           cursor: "pointer",
                         }}
                       >
-                        Close Camera
+                        Cancel Camera
                       </button>
                     </div>
                   </div>
                 )}
 
-                {/* Dual Action Buttons: Take Photo & Upload Photo */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                  <button
-                    type="button"
-                    onClick={startCamera}
-                    disabled={isUploadingResolution}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "7px",
-                      padding: "10px 14px",
-                      borderRadius: "10px",
-                      border: "1.5px solid #6366f1",
-                      background: "#eef2ff",
-                      color: "#4f46e5",
-                      cursor: "pointer",
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      transition: "all 0.2s ease",
-                    }}
-                  >
-                    <Camera size={16} /> Take Completion Photo
-                  </button>
+                {/* Upload Action Trigger Buttons */}
+                {!isCameraOpen && (
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      style={{
+                        flex: 1,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "8px",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #4f46e5",
+                        background: "#eef2ff",
+                        color: "#4338ca",
+                        fontWeight: 600,
+                        fontSize: "13px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Camera size={16} /> Take Completion Photo
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploadingResolution}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "7px",
-                      padding: "10px 14px",
-                      borderRadius: "10px",
-                      border: "1.5px solid #cbd5e1",
-                      background: "#f8fafc",
-                      color: "#334155",
-                      cursor: "pointer",
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      transition: "all 0.2s ease",
-                    }}
-                  >
-                    <Upload size={16} /> Upload Completion Photo
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      style={{
+                        flex: 1,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "8px",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        background: "white",
+                        color: "#334155",
+                        fontWeight: 600,
+                        fontSize: "13px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Upload size={16} /> Upload Completion Photo
+                    </button>
 
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    capture="environment"
-                    multiple
-                    hidden
-                    onChange={handleResolutionFileChange}
-                  />
-                </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleResolutionFileChange}
+                      style={{ display: "none" }}
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Footer Actions */}
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", borderTop: "1px solid #f1f5f9", paddingTop: "18px" }}>
+              {/* Action Buttons */}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
                 <button
                   type="button"
                   onClick={handleCloseResolutionModal}
                   disabled={isUploadingResolution}
                   style={{
-                    padding: "9px 18px",
-                    borderRadius: "10px",
+                    padding: "10px 18px",
+                    borderRadius: "8px",
                     border: "1px solid #cbd5e1",
                     background: "white",
                     color: "#475569",
                     fontWeight: 600,
-                    fontSize: "13.5px",
+                    fontSize: "14px",
                     cursor: "pointer",
                   }}
                 >
                   Cancel
                 </button>
+
                 <button
                   type="submit"
-                  disabled={isUploadingResolution}
+                  disabled={isUploadingResolution || resolutionFiles.length === 0 || !resolutionNotes.trim()}
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "7px",
-                    padding: "9px 20px",
-                    borderRadius: "10px",
+                    gap: "8px",
+                    padding: "10px 22px",
+                    borderRadius: "8px",
                     border: "none",
-                    background: "#16a34a",
+                    background:
+                      resolutionFiles.length === 0 || !resolutionNotes.trim()
+                        ? "#94a3b8"
+                        : "#16a34a",
                     color: "white",
                     fontWeight: 700,
-                    fontSize: "13.5px",
-                    cursor: isUploadingResolution ? "not-allowed" : "pointer",
-                    boxShadow: "0 4px 12px rgba(22, 163, 74, 0.2)",
+                    fontSize: "14px",
+                    cursor:
+                      resolutionFiles.length === 0 || !resolutionNotes.trim() || isUploadingResolution
+                        ? "not-allowed"
+                        : "pointer",
+                    boxShadow: "0 2px 4px rgba(22, 163, 74, 0.25)",
                   }}
                 >
                   <CheckCircle2 size={16} />
-                  {isUploadingResolution ? "Uploading & Resolving..." : "Confirm Resolved"}
+                  {isUploadingResolution ? "Uploading & Resolving..." : "Mark as Resolved"}
                 </button>
               </div>
             </form>

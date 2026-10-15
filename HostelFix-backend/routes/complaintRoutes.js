@@ -318,49 +318,108 @@ router.post("/complaints", authenticate, authorizeRoles(ROLES.STUDENT, ROLES.ADM
       })
     }
 
-    if (!req.user.organizationId || req.user.accountStatus === "pending_affiliation") {
-      return res.status(403).json({
-        success: false,
-        code: "PENDING_AFFILIATION",
-        message: "You must be affiliated with an active hostel organization before submitting complaints.",
-      })
-    }
-
     const finalPriority = priority && ALL_PRIORITIES.includes(priority) ? priority : "medium"
-    const organizationId = req.user.organizationId
-    const organizationName = req.user.organizationName || ""
-    let hostelId = req.user.hostelId || null
-    let hostelName = req.user.hostelName || hostel || "Main Hostel"
-    const finalRoom = room || req.user.roomNumber || "101"
+    const Hostel = require("../models/Hostel")
 
-    if (hostel && organizationId && !hostelId) {
-      const Hostel = require("../models/Hostel")
-      const matched = await Hostel.findOne({
-        organizationId,
-        $or: [
-          { name: { $regex: new RegExp(`^${hostel.trim()}$`, "i") } },
-          { code: hostel.trim().toUpperCase() },
-        ],
-      })
-      if (matched) {
-        hostelId = matched._id
-        hostelName = matched.name
+    let finalHostelId = null
+    let finalHostelName = ""
+    let finalOrganizationId = req.user.organizationId
+
+    if (req.user.role === ROLES.STUDENT) {
+      const studentHostelId = req.user.hostelId
+
+      // Validate student has an assigned hostel
+      if (!studentHostelId && !req.user.hostelName && !req.user.hostel) {
+        return res.status(403).json({
+          success: false,
+          code: "NOT_AFFILIATED",
+          message: "You must be affiliated with an active hostel before submitting complaints.",
+        })
+      }
+
+      // Check if student attempted to change their hostel in the complaint body
+      const requestedHostelId = req.body.hostelId || req.body.hostel_id
+      if (requestedHostelId && studentHostelId) {
+        if (String(requestedHostelId).trim() !== String(studentHostelId).trim()) {
+          return res.status(403).json({
+            success: false,
+            message: "Unauthorized: You can only submit complaints for your affiliated hostel.",
+          })
+        }
+      }
+
+      // Retrieve and validate the hostel document from the database
+      let hostelDoc = null
+      if (studentHostelId) {
+        hostelDoc = await Hostel.findById(studentHostelId)
+      } else {
+        const studentHostelName = req.user.hostelName || req.user.hostel
+        hostelDoc = await Hostel.findOne({
+          $or: [
+            { name: { $regex: new RegExp(`^${studentHostelName.trim()}$`, "i") } },
+            { code: studentHostelName.trim().toUpperCase() },
+          ],
+        })
+      }
+
+      if (!hostelDoc || hostelDoc.status !== "active") {
+        return res.status(400).json({
+          success: false,
+          message: "Your affiliated hostel does not exist or is inactive.",
+        })
+      }
+
+      finalHostelId = hostelDoc._id
+      finalHostelName = hostelDoc.name
+      if (hostelDoc.organizationId) {
+        finalOrganizationId = hostelDoc.organizationId
+      }
+    } else {
+      // Platform Admin or Warden creating complaint
+      const requestedHostelId = req.body.hostelId || req.user.hostelId
+      const requestedHostelName = req.body.hostel || req.user.hostelName || req.user.hostel
+
+      let hostelDoc = null
+      if (requestedHostelId) {
+        hostelDoc = await Hostel.findById(requestedHostelId)
+      } else if (requestedHostelName) {
+        hostelDoc = await Hostel.findOne({
+          $or: [
+            { name: { $regex: new RegExp(`^${String(requestedHostelName).trim()}$`, "i") } },
+            { code: String(requestedHostelName).trim().toUpperCase() },
+          ],
+        })
+      }
+
+      if (!hostelDoc || hostelDoc.status !== "active") {
+        return res.status(400).json({
+          success: false,
+          message: "The specified hostel does not exist or is inactive.",
+        })
+      }
+
+      finalHostelId = hostelDoc._id
+      finalHostelName = hostelDoc.name
+      if (hostelDoc.organizationId) {
+        finalOrganizationId = hostelDoc.organizationId
       }
     }
 
+    const finalHostel = finalHostelName
+    const finalRoom = room ? String(room).trim() : (req.user.roomNumber || req.user.room || "101")
     const complaintNumber = await generateNextComplaintNumber()
 
-    // Create the complaint
+    // Create the complaint with validated database hostel ID and name
     const complaint = await Complaint.create({
       complaintNumber,
       createdBy: req.user._id,
       studentName: req.user.name,
       studentEmail: req.user.email,
-      organizationId,
-      organizationName,
-      hostelId,
-      hostelName: hostelName.trim(),
-      roomNumber: finalRoom.trim(),
+      organizationId: finalOrganizationId,
+      organizationName: req.user.organizationName || finalHostelName,
+      hostelId: finalHostelId,
+      hostelName: finalHostelName,
+      roomNumber: finalRoom,
       title: title.trim(),
       description: description.trim(),
       category,
@@ -541,9 +600,10 @@ router.post("/complaints/:id/verify", authenticate, authorizeRoles(ROLES.WARDEN,
  */
 router.patch("/complaints/:id/assign", authenticate, authorizeRoles(ROLES.WARDEN, ROLES.ADMIN), async (req, res) => {
   try {
-    const { staff_id, staffName, instructions = "" } = req.body
+    const { staff_id, staffId, staffName, instructions = "" } = req.body
     const param = req.params.id
-    const query = param.startsWith("HF-") ? { complaintNumber: param } : { _id: param }
+    const isHex = /^[0-9a-fA-F]{24}$/.test(param)
+    const query = isHex ? { _id: param } : { complaintNumber: param.startsWith("HF-") ? param : `HF-${param}` }
 
     const complaint = await Complaint.findOne(query)
     if (!complaint) {
@@ -554,15 +614,56 @@ router.patch("/complaints/:id/assign", authenticate, authorizeRoles(ROLES.WARDEN
       return res.status(403).json({ success: false, message: "Unauthorized for this hostel" })
     }
 
-    let staff = null
-    if (staff_id) {
-      staff = await User.findById(staff_id)
-    } else if (staffName) {
-      staff = await User.findOne({ name: staffName, role: ROLES.STAFF })
+    const staffIdentifier = staff_id || staffId || staffName
+    if (!staffIdentifier) {
+      return res.status(400).json({ success: false, message: "Please specify a staff technician to assign" })
     }
 
+    let staff = null
+    if (/^[0-9a-fA-F]{24}$/.test(String(staffIdentifier))) {
+      staff = await User.findById(staffIdentifier)
+    }
     if (!staff) {
+      staff = await User.findOne({ name: staffIdentifier, role: ROLES.STAFF })
+    }
+
+    if (!staff || staff.role !== ROLES.STAFF) {
       return res.status(404).json({ success: false, message: "Staff member not found" })
+    }
+
+    // 1. Verify staff account is active
+    if (staff.accountStatus !== "active") {
+      return res.status(400).json({
+        success: false,
+        message: "Staff member is suspended or inactive and cannot be assigned tasks.",
+      })
+    }
+
+    // 2. Strict Hostel boundary verification
+    if (complaint.hostelId && staff.hostelId) {
+      const staffMatchesHostel =
+        staff.hostelId.toString() === complaint.hostelId.toString() ||
+        (staff.authorizedHostels && staff.authorizedHostels.some((h) => h.toString() === complaint.hostelId.toString()))
+
+      if (!staffMatchesHostel) {
+        return res.status(403).json({
+          success: false,
+          message: "Forbidden: Cannot assign staff member from a different hostel.",
+        })
+      }
+    }
+
+    // Organization boundary check
+    if (
+      req.user.role !== ROLES.PLATFORM_ADMIN &&
+      complaint.organizationId &&
+      staff.organizationId &&
+      complaint.organizationId.toString() !== staff.organizationId.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: Cannot assign staff from a different hostel organization.",
+      })
     }
 
     const oldStatus = complaint.status
@@ -636,15 +737,106 @@ router.patch("/complaints/:id/assign", authenticate, authorizeRoles(ROLES.WARDEN
 })
 
 /**
+ * @route   POST /api/complaints/:id/resolve
+ * @desc    Direct resolution with mandatory completion photo and notes
+ * @access  Private (Staff, Warden, Admin)
+ */
+router.post("/complaints/:id/resolve", authenticate, authorizeRoles(ROLES.STAFF, ROLES.WARDEN, ROLES.ADMIN), async (req, res) => {
+  try {
+    const { note = "", workNotes = "", resolutionImages = [], photoUrl = "" } = req.body
+    const param = req.params.id
+    const isHex = /^[0-9a-fA-F]{24}$/.test(param)
+    const query = isHex ? { _id: param } : { complaintNumber: param.startsWith("HF-") ? param : `HF-${param}` }
+
+    const complaint = await Complaint.findOne(query)
+    if (!complaint) {
+      return res.status(404).json({ success: false, message: "Complaint not found" })
+    }
+
+    if (!canAccessComplaint(req.user, complaint)) {
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot resolve this complaint" })
+    }
+
+    const hasExistingPhotos = complaint.resolutionImages && complaint.resolutionImages.length > 0
+    const hasBodyPhotos = (resolutionImages && resolutionImages.length > 0) || Boolean(photoUrl)
+
+    if (!hasExistingPhotos && !hasBodyPhotos) {
+      return res.status(400).json({
+        success: false,
+        message: "A completion photograph is mandatory before marking the complaint as resolved.",
+      })
+    }
+
+    const effectiveNotes = note || workNotes || complaint.workNotes
+    if (!effectiveNotes || String(effectiveNotes).trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Resolution notes explaining the completed work are required.",
+      })
+    }
+
+    const oldStatus = complaint.status
+    complaint.status = COMPLAINT_STATUS.RESOLVED
+    complaint.resolvedAt = new Date()
+    complaint.resolvedBy = req.user._id
+    complaint.workNotes = String(effectiveNotes).trim()
+
+    if (resolutionImages && resolutionImages.length > 0) {
+      complaint.resolutionImages.push(...resolutionImages)
+    } else if (photoUrl) {
+      complaint.resolutionImages.push({
+        url: photoUrl,
+        uploadedAt: new Date(),
+        uploaderId: req.user._id,
+        notes: complaint.workNotes,
+      })
+    }
+
+    await complaint.save()
+
+    await ComplaintStatusHistory.create({
+      complaintId: complaint._id,
+      previousStatus: oldStatus,
+      newStatus: COMPLAINT_STATUS.RESOLVED,
+      changedBy: req.user._id,
+      changedByName: req.user.name,
+      changedByRole: req.user.role,
+      remarks: complaint.workNotes,
+      timestamp: new Date(),
+    })
+
+    await sendNotification({
+      recipientUserId: complaint.createdBy,
+      complaintId: complaint._id,
+      complaintNumber: complaint.complaintNumber,
+      type: "complaint_resolved",
+      title: "Complaint Resolved",
+      message: `Technician marked #${complaint.complaintNumber} as completed. Please verify and leave feedback!`,
+    })
+
+    broadcast("complaint:updated", formatComplaint(complaint))
+
+    res.json({
+      success: true,
+      message: "Complaint resolved successfully",
+      complaint: formatComplaint(complaint),
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to resolve complaint: " + error.message })
+  }
+})
+
+/**
  * @route   PATCH /api/complaints/:id/status
  * @desc    Update complaint lifecycle status with authorization and state-transition rules
  * @access  Private (Student, Warden, Staff, Admin)
  */
 router.patch("/complaints/:id/status", authenticate, async (req, res) => {
   try {
-    const { status, note = "" } = req.body
+    const { status, note = "", resolutionImages = [], workNotes = "", photoUrl = "" } = req.body
     const param = req.params.id
-    const query = param.startsWith("HF-") ? { complaintNumber: param } : { _id: param }
+    const isHex = /^[0-9a-fA-F]{24}$/.test(param)
+    const query = isHex ? { _id: param } : { complaintNumber: param.startsWith("HF-") ? param : `HF-${param}` }
 
     const complaint = await Complaint.findOne(query)
     if (!complaint) {
@@ -674,17 +866,44 @@ router.patch("/complaints/:id/status", authenticate, async (req, res) => {
       })
     }
 
-    complaint.status = status
     if (status === COMPLAINT_STATUS.RESOLVED) {
+      const hasExistingPhotos = complaint.resolutionImages && complaint.resolutionImages.length > 0
+      const hasBodyPhotos = (resolutionImages && resolutionImages.length > 0) || Boolean(photoUrl)
+
+      if (!hasExistingPhotos && !hasBodyPhotos) {
+        return res.status(400).json({
+          success: false,
+          message: "A completion photograph is mandatory before marking the complaint as resolved.",
+        })
+      }
+
+      const effectiveNotes = note || workNotes || complaint.workNotes
+      if (!effectiveNotes || String(effectiveNotes).trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Resolution notes explaining the completed work are required.",
+        })
+      }
+
       complaint.resolvedAt = new Date()
       complaint.resolvedBy = req.user._id
-      if (note) {
-        complaint.workNotes = String(note).trim()
+      complaint.workNotes = String(effectiveNotes).trim()
+
+      if (resolutionImages && resolutionImages.length > 0) {
+        complaint.resolutionImages.push(...resolutionImages)
+      } else if (photoUrl) {
+        complaint.resolutionImages.push({
+          url: photoUrl,
+          uploadedAt: new Date(),
+          uploaderId: req.user._id,
+          notes: complaint.workNotes,
+        })
       }
     } else if (status === COMPLAINT_STATUS.CLOSED) {
       complaint.closedAt = new Date()
     }
 
+    complaint.status = status
     await complaint.save()
 
     // Audit log

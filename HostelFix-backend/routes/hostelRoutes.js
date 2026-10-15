@@ -7,11 +7,11 @@ const { authorizeRoles } = require("../middleware/rbac")
 const { ROLES } = require("../config/constants")
 
 /**
- * @route   GET /api/hostels
- * @desc    Get all active hostels
- * @access  Private
+ * @route   GET /api/hostels/public
+ * @desc    Get all active registered hostels for student registration dropdown
+ * @access  Public
  */
-router.get("/hostels", authenticate, async (req, res) => {
+router.get("/hostels/public", async (req, res) => {
   try {
     const hostels = await Hostel.find({ status: "active" }).sort({ name: 1 }).lean()
     res.json({
@@ -22,6 +22,38 @@ router.get("/hostels", authenticate, async (req, res) => {
         name: h.name,
         code: h.code,
         address: h.address,
+        organizationId: h.organizationId,
+        contactInformation: h.contactInformation,
+      })),
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to load hostels: " + error.message })
+  }
+})
+
+/**
+ * @route   GET /api/hostels
+ * @desc    Get all active hostels
+ * @access  Private
+ */
+router.get("/hostels", authenticate, async (req, res) => {
+  try {
+    const filter = { status: "active" }
+    // If not platform admin and organizationId exists, scope to organization
+    if (req.user && req.user.role !== ROLES.PLATFORM_ADMIN && req.user.organizationId) {
+      filter.organizationId = req.user.organizationId
+    }
+
+    const hostels = await Hostel.find(filter).sort({ name: 1 }).lean()
+    res.json({
+      success: true,
+      count: hostels.length,
+      hostels: hostels.map((h) => ({
+        id: h._id,
+        name: h.name,
+        code: h.code,
+        address: h.address,
+        organizationId: h.organizationId,
         contactInformation: h.contactInformation,
       })),
     })

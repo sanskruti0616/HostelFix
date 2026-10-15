@@ -23,8 +23,8 @@ export default function RaiseComplaint({
   const [priority, setPriority] = useState<ComplaintPriority>("medium")
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
-  const [room, setRoom] = useState(currentUser.room || "A-204")
-  const [hostel, setHostel] = useState(currentUser.hostel || "Girls Hostel A")
+  const [room, setRoom] = useState(currentUser.room || currentUser.roomNumber || "A-201")
+  const assignedHostelName = currentUser.hostelName || currentUser.hostel || "Assigned Hostel"
 
   const [selectedImages, setSelectedImages] = useState<ImagePreview[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -209,7 +209,8 @@ export default function RaiseComplaint({
         description: description.trim(),
         category,
         priority,
-        hostel: hostel.trim(),
+        hostelId: currentUser.hostelId,
+        hostel: assignedHostelName,
         room: room.trim(),
         evidenceImages: uploadedEvidence,
       })
@@ -294,12 +295,21 @@ export default function RaiseComplaint({
             <div className="form-grid">
               <div className="form-field">
                 <label>Hostel</label>
-                <input
-                  value={hostel}
-                  onChange={(e) => setHostel(e.target.value)}
-                  placeholder="Hostel name"
-                  disabled={isSubmitting}
-                />
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    background: "#f1f5f9",
+                    borderRadius: "8px",
+                    border: "1px solid #cbd5e1",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: "14px", color: "#1e293b" }}>
+                    {assignedHostelName}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
+                    Assigned to your account
+                  </div>
+                </div>
               </div>
 
               <div className="form-field">

@@ -48,8 +48,8 @@ export default function ComplaintDetails({
 }: ComplaintDetailsProps) {
   const [history, setHistory] = useState<ComplaintUpdate[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
-  const [staffOptions, setStaffOptions] = useState<{ id: string; name: string }[]>([])
-  const [selectedStaff, setSelectedStaff] = useState(complaint.assignedStaff || "")
+  const [staffOptions, setStaffOptions] = useState<{ id: string; name: string; specialization?: string }[]>([])
+  const [selectedStaff, setSelectedStaff] = useState(complaint.assignedStaffId || complaint.assignedStaff || "")
   const [activeImageZoom, setActiveImageZoom] = useState<string | null>(null)
 
   // Student Rating State
@@ -90,14 +90,25 @@ export default function ComplaintDetails({
     }
   }, [complaint.id])
 
-  // Load active staff technicians for warden assignment
+  // Load active staff technicians for warden assignment (strictly scoped to hostel)
   useEffect(() => {
     if (isWarden) {
-      api.auth.getStaffList()
-        .then((res) => setStaffOptions(res.staff.map((s) => ({ id: s.id, name: s.name }))))
+      api.staff.list({ status: "active" })
+        .then((res) => {
+          const staffList = (res.staff || []).map((s) => ({
+            id: s.id,
+            name: s.name,
+            specialization: s.specialization,
+          }))
+          setStaffOptions(staffList)
+          if (complaint.assignedStaff && !complaint.assignedStaffId) {
+            const match = staffList.find((s) => s.name === complaint.assignedStaff)
+            if (match) setSelectedStaff(match.id)
+          }
+        })
         .catch((err) => console.warn("Failed to load staff list:", err))
     }
-  }, [isWarden])
+  }, [isWarden, complaint.assignedStaff, complaint.assignedStaffId])
 
   const handleVerifySubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -411,17 +422,14 @@ export default function ComplaintDetails({
                   <option value="">Select technician</option>
                   {staffOptions.length > 0 ? (
                     staffOptions.map((s) => (
-                      <option key={s.id} value={s.name}>
-                        {s.name}
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.specialization || "General Maintenance"})
                       </option>
                     ))
                   ) : (
-                    <>
-                      <option value="Vaishnavi Bhoiwade">Vaishnavi Bhoiwade</option>
-                      <option value="Bhargavi Borkhade">Bhargavi Borkhade</option>
-                      <option value="Bhavesh Bhut">Bhavesh Bhut</option>
-                      <option value="Ruturaj Bhome">Ruturaj Bhome</option>
-                    </>
+                    <option value="" disabled>
+                      No active technicians registered for this hostel
+                    </option>
                   )}
                 </select>
               </div>

@@ -51,6 +51,17 @@ export interface Organization {
   createdAt?: string
 }
 
+export interface Hostel {
+  id: string
+  name: string
+  code?: string
+  address?: string
+  status?: string
+  organizationId?: string
+  contactInformation?: any
+  totalRooms?: number
+}
+
 export interface User {
   id: string
   name: string
@@ -61,12 +72,31 @@ export interface User {
   organizationName?: string
   hostelId?: string
   hostel?: string
+  hostelName?: string
   authorizedHostels?: string[]
   room?: string
+  roomNumber?: string
   phone?: string
   profileImage?: string
+  specialization?: string
   accountStatus?: "active" | "pending" | "suspended" | "pending_affiliation"
   invitationCodeUsed?: string
+}
+
+export interface StaffMember {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  specialization: string
+  accountStatus: "active" | "suspended"
+  hostelId?: string
+  hostelName?: string
+  organizationId?: string
+  organizationName?: string
+  assignedCount: number
+  completedCount: number
+  createdAt?: string
 }
 
 export interface EvidenceImage {

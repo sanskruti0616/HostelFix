@@ -12,7 +12,7 @@ async function seed() {
   console.log("[Seed] Starting development database seed...")
   await connectDB()
 
-  // 0. Seed Demo Organization
+  // 0. Seed Organizations
   const demoOrg = await Organization.findOneAndUpdate(
     { slug: "demo-campus" },
     {
@@ -31,6 +31,24 @@ async function seed() {
   )
   console.log(`[Seed] Demo Organization verified: ${demoOrg.name} (${demoOrg.invitationCode})`)
 
+  const premierOrg = await Organization.findOneAndUpdate(
+    { slug: "hostelfix-premier" },
+    {
+      name: "HostelFix Premier Residences",
+      slug: "hostelfix-premier",
+      invitationCode: "HF-PREMIER2026",
+      contactEmail: "premier@hostelfix.com",
+      phone: "+91 90000 11111",
+      address: "Premier Campus Heights",
+      city: "Pune",
+      state: "Maharashtra",
+      status: "active",
+      plan: "enterprise",
+    },
+    { upsert: true, new: true }
+  )
+  console.log(`[Seed] Premier Organization verified: ${premierOrg.name} (${premierOrg.invitationCode})`)
+
   // 1. Seed Hostels
   const hostelsData = [
     {
@@ -46,6 +64,13 @@ async function seed() {
       code: "BHB",
       address: "South Campus, Sector 9",
       contactInformation: { wardenName: "Rajesh Kumar", phone: "9876543202", email: "rajesh@hostelfix.com" },
+    },
+    {
+      organizationId: premierOrg._id,
+      name: "Premier Executive Hostel",
+      code: "PEH",
+      address: "Tower 1, Premier Campus",
+      contactInformation: { wardenName: "Dr. Arvind Rao", phone: "9876543299", email: "premier.warden@hostelfix.com" },
     },
   ]
 
@@ -193,6 +218,24 @@ async function seed() {
       isDemoAccount: true,
       passwordHash: defaultHash,
     },
+    {
+      providerUserId: "local_premier_student_001",
+      name: "Aakash Mehta",
+      email: "aakash@premier.hostelfix.com",
+      username: "aakash",
+      role: ROLES.STUDENT,
+      organizationId: premierOrg._id,
+      organizationName: premierOrg.name,
+      hostelId: hostels[2]._id,
+      hostelName: hostels[2].name,
+      authorizedHostels: [hostels[2]._id],
+      roomNumber: "P-101",
+      phone: "9876543290",
+      accountStatus: "active",
+      authenticationProvider: "local",
+      isDemoAccount: false,
+      passwordHash: defaultHash,
+    },
   ]
 
   const seededUsers = {}
@@ -206,10 +249,10 @@ async function seed() {
   }
   console.log(`[Seed] Seed users verified: ${Object.keys(seededUsers).length}`)
 
-  // 4. Seed initial realistic complaints if collection is empty
-  const complaintCount = await Complaint.countDocuments()
-  if (complaintCount === 0) {
-    console.log("[Seed] Populating initial realistic complaints...")
+  // 4. Ensure realistic complaints exist for demoOrg
+  const demoComplaintCount = await Complaint.countDocuments({ organizationId: demoOrg._id })
+  if (demoComplaintCount === 0) {
+    console.log("[Seed] Populating demo organization complaints...")
 
     const studentUser = seededUsers["sanskruti@hostelfix.com"]
     const staff1 = seededUsers["vaishnavi@hostelfix.com"]
@@ -284,7 +327,32 @@ async function seed() {
         timestamp: new Date(),
       })
     }
-    console.log(`[Seed] Seeded ${initialComplaints.length} initial complaints.`)
+    console.log(`[Seed] Seeded ${initialComplaints.length} demo complaints.`)
+  }
+
+  // 5. Ensure complaint exists for premierOrg for cross-tenant isolation testing
+  const premierComplaintCount = await Complaint.countDocuments({ organizationId: premierOrg._id })
+  if (premierComplaintCount === 0) {
+    const premierStudent = seededUsers["aakash@premier.hostelfix.com"]
+    const premierHostel = hostels[2]
+    await Complaint.create({
+      complaintNumber: "HF-9001",
+      organizationId: premierOrg._id,
+      organizationName: premierOrg.name,
+      createdBy: premierStudent._id,
+      studentName: premierStudent.name,
+      studentEmail: premierStudent.email,
+      hostelId: premierHostel._id,
+      hostelName: premierHostel.name,
+      roomNumber: "P-101",
+      title: "Air Conditioner thermostat reading incorrect temperature",
+      description: "The room AC unit cools down below set temperature in room P-101.",
+      category: "Electrical",
+      priority: "medium",
+      status: COMPLAINT_STATUS.SUBMITTED,
+      verification: { isVerified: true, verificationType: "ai_assisted", result: "verified", confidence: 0.9, explanation: "Valid electrical issue." },
+    })
+    console.log("[Seed] Seeded premier organization complaint.")
   }
 
   console.log("[Seed] Database seed completed successfully!")

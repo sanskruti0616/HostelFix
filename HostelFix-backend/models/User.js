@@ -105,6 +105,11 @@ const userSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    specialization: {
+      type: String,
+      trim: true,
+      default: "General Maintenance",
+    },
     lastLoginAt: {
       type: Date,
       default: Date.now,

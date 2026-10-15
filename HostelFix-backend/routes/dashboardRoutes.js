@@ -257,9 +257,48 @@ router.get("/dashboard/maintenance", authenticate, authorizeRoles(ROLES.STAFF, R
       completed: 0,
     }
 
+    const [recentAssignments, recentActivity] = await Promise.all([
+      Complaint.find({ "assignedTo.staffId": staffId })
+        .sort({ "assignedTo.assignedAt": -1, createdAt: -1 })
+        .limit(10)
+        .lean(),
+      Complaint.find({
+        "assignedTo.staffId": staffId,
+        status: { $in: [COMPLAINT_STATUS.RESOLVED, COMPLAINT_STATUS.CLOSED] },
+      })
+        .sort({ resolvedAt: -1, updatedAt: -1 })
+        .limit(10)
+        .lean(),
+    ])
+
     res.json({
       success: true,
       stats,
+      recentAssignments: recentAssignments.map((c) => ({
+        id: c._id,
+        complaintNumber: c.complaintNumber,
+        title: c.title,
+        category: c.category,
+        priority: c.priority,
+        status: c.status,
+        roomNumber: c.roomNumber,
+        hostelName: c.hostelName,
+        studentName: c.studentName,
+        assignedAt: c.assignedTo?.assignedAt,
+        createdAt: c.createdAt,
+      })),
+      recentActivity: recentActivity.map((c) => ({
+        id: c._id,
+        complaintNumber: c.complaintNumber,
+        title: c.title,
+        category: c.category,
+        status: c.status,
+        roomNumber: c.roomNumber,
+        resolvedAt: c.resolvedAt,
+        workNotes: c.workNotes,
+        rating: c.rating,
+        resolutionImages: c.resolutionImages,
+      })),
     })
   } catch (error) {
     console.error("[Dashboard] Staff error:", error.message)

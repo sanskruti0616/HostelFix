@@ -6,7 +6,9 @@ import type {
   NotificationItem,
   User,
   Organization,
+  Hostel,
   ComplaintUpdate,
+  StaffMember,
 } from "../types"
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000"
@@ -148,11 +150,19 @@ export const api = {
       })
     },
 
-    async getStaffList() {
+    async getStaffList(params?: { includeAll?: boolean }) {
+      const query = params?.includeAll ? "?includeAll=true" : ""
       return request<{
         success: boolean
-        staff: { id: string; name: string; email: string; phone?: string }[]
-      }>("/api/users/staff")
+        staff: {
+          id: string
+          name: string
+          email: string
+          phone?: string
+          specialization?: string
+          accountStatus?: string
+        }[]
+      }>(`/api/users/staff${query}`)
     },
 
     async getAllUsers(params: { role?: string; search?: string; page?: number } = {}) {
@@ -192,6 +202,32 @@ export const api = {
         user: User
         token: string
       }>("/api/auth/register-organization", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      setStoredAuth(data.token, data.user)
+      return data
+    },
+
+    async registerHostel(payload: {
+      hostelName: string
+      code?: string
+      address?: string
+      city?: string
+      state?: string
+      contactEmail: string
+      contactPhone?: string
+      wardenName: string
+      wardenPassword: string
+    }) {
+      const data = await request<{
+        success: boolean
+        message: string
+        token: string
+        hostel: Hostel
+        organization: Organization
+        user: User
+      }>("/api/auth/register-hostel", {
         method: "POST",
         body: JSON.stringify(payload),
       })
@@ -274,6 +310,27 @@ export const api = {
   },
 
   // ===================================================
+  // HOSTELS
+  // ===================================================
+  hostels: {
+    async getPublicList() {
+      return request<{
+        success: boolean
+        count: number
+        hostels: Hostel[]
+      }>("/api/hostels/public")
+    },
+
+    async getAll() {
+      return request<{
+        success: boolean
+        count: number
+        hostels: Hostel[]
+      }>("/api/hostels")
+    },
+  },
+
+  // ===================================================
   // COMPLAINTS
   // ===================================================
   complaints: {
@@ -313,6 +370,7 @@ export const api = {
       description: string
       category: ComplaintCategory
       priority: ComplaintPriority
+      hostelId?: string
       hostel?: string
       room?: string
       evidenceImages?: any[]
@@ -329,29 +387,48 @@ export const api = {
     },
 
     async assignStaff(complaintId: string, staffNameOrId: string, instructions = "") {
-      const idParam = complaintId.replace("HF-", "")
+      const isId = /^[0-9a-fA-F]{24}$/.test(staffNameOrId)
       return request<{
         success: boolean
         message: string
         complaint: Complaint
-      }>(`/api/complaints/${idParam}/assign`, {
+      }>(`/api/complaints/${encodeURIComponent(complaintId)}/assign`, {
         method: "PATCH",
         body: JSON.stringify({
+          staff_id: isId ? staffNameOrId : undefined,
           staffName: staffNameOrId,
           instructions,
         }),
       })
     },
 
-    async updateStatus(complaintId: string, status: ComplaintStatus, note?: string) {
-      const idParam = complaintId.replace("HF-", "")
+    async updateStatus(
+      complaintId: string,
+      status: ComplaintStatus,
+      note?: string,
+      extra?: { resolutionImages?: any[]; photoUrl?: string; workNotes?: string }
+    ) {
       return request<{
         success: boolean
         message: string
         complaint: Complaint
-      }>(`/api/complaints/${idParam}/status`, {
+      }>(`/api/complaints/${encodeURIComponent(complaintId)}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status, note }),
+        body: JSON.stringify({ status, note, ...extra }),
+      })
+    },
+
+    async resolve(
+      complaintId: string,
+      payload: { note?: string; workNotes?: string; resolutionImages?: any[]; photoUrl?: string }
+    ) {
+      return request<{
+        success: boolean
+        message: string
+        complaint: Complaint
+      }>(`/api/complaints/${encodeURIComponent(complaintId)}/resolve`, {
+        method: "POST",
+        body: JSON.stringify(payload),
       })
     },
 
@@ -522,6 +599,64 @@ export const api = {
         staffWorkload: { staffName: string; totalTasks: number; resolvedTasks: number }[]
         verificationOutcomes: Record<string, number>
       }>("/api/dashboard/admin")
+    },
+  },
+
+  // ===================================================
+  // STAFF MANAGEMENT
+  // ===================================================
+  staff: {
+    async list(params: { includeAll?: boolean; status?: string; search?: string } = {}) {
+      const searchParams = new URLSearchParams()
+      if (params.includeAll) searchParams.set("includeAll", "true")
+      if (params.status) searchParams.set("status", params.status)
+      if (params.search) searchParams.set("search", params.search)
+      const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+      return request<{
+        success: boolean
+        count: number
+        staff: StaffMember[]
+      }>(`/api/users/staff${query}`)
+    },
+
+    async create(payload: {
+      name: string
+      email: string
+      password: string
+      phone?: string
+      specialization?: string
+      hostelId?: string
+    }) {
+      return request<{
+        success: boolean
+        message: string
+        staff: StaffMember
+      }>("/api/users/staff", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    async updateStatus(staffId: string, status: "active" | "suspended") {
+      return request<{
+        success: boolean
+        message: string
+        staff: StaffMember
+      }>(`/api/users/staff/${staffId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      })
+    },
+
+    async update(staffId: string, payload: { name?: string; phone?: string; specialization?: string }) {
+      return request<{
+        success: boolean
+        message: string
+        staff: StaffMember
+      }>(`/api/users/staff/${staffId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      })
     },
   },
 

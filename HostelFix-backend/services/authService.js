@@ -328,18 +328,18 @@ async function registerOrganizationAndAdmin({
     status: "active",
   })
 
-  // 3. Hash admin password
+  // 3. Hash admin/warden password
   const passwordHash = await bcrypt.hash(String(adminPassword), 10)
 
-  // 4. Create Organization Administrator
-  const adminUser = await User.create({
+  // 4. Create Hostel Registrant with Warden Role (Strictly single Platform Admin architecture)
+  const wardenUser = await User.create({
     authenticationProvider: "local",
-    providerUserId: `admin_${cleanSlug}_${Date.now()}`,
+    providerUserId: `warden_${cleanSlug}_${Date.now()}`,
     name: adminName.trim(),
     email: contactEmail.toLowerCase().trim(),
-    username: `${cleanSlug.replace(/-/g, "_")}_admin`,
+    username: `${cleanSlug.replace(/-/g, "_")}_warden`,
     passwordHash,
-    role: ROLES.ADMIN,
+    role: ROLES.WARDEN, // AUTOMATICALLY ASSIGN WARDEN ROLE
     organizationId: org._id,
     organizationName: org.name,
     authorizedHostels: [defaultHostel._id],
@@ -348,28 +348,140 @@ async function registerOrganizationAndAdmin({
     accountStatus: "active",
   })
 
-  org.createdBy = adminUser._id
+  org.createdBy = wardenUser._id
   await org.save()
 
-  const token = generateToken(adminUser)
-  return { user: adminUser, organization: org, token }
+  const token = generateToken(wardenUser)
+  return { user: wardenUser, organization: org, hostel: defaultHostel, token }
 }
 
 /**
- * Register a student and affiliate them with an organization
+ * Register a new Hostel and automatically assign the Warden role
+ */
+async function registerHostel({
+  hostelName,
+  code,
+  address = "",
+  city = "",
+  state = "",
+  contactEmail,
+  contactPhone = "",
+  wardenName,
+  wardenPassword,
+}) {
+  if (!hostelName || !contactEmail || !wardenName || !wardenPassword) {
+    const error = new Error("Hostel name, contact email, warden name, and password are required")
+    error.statusCode = 400
+    throw error
+  }
+
+  if (String(wardenPassword).length < 6) {
+    const error = new Error("Password must be at least 6 characters")
+    error.statusCode = 400
+    throw error
+  }
+
+  const cleanEmail = String(contactEmail).toLowerCase().trim()
+  const existingUser = await User.findOne({ email: cleanEmail })
+  if (existingUser) {
+    const error = new Error("An account with this email address already exists. Please log in.")
+    error.statusCode = 400
+    throw error
+  }
+
+  // Generate unique slug
+  let cleanSlug = String(hostelName)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/--+/g, "-")
+    .replace(/^-|-$/g, "")
+  if (!cleanSlug) cleanSlug = `hostel-${Date.now().toString(36)}`
+
+  // Generate unique hostel code
+  let hostelCode = code ? String(code).trim().toUpperCase() : cleanSlug.substring(0, 4).toUpperCase()
+  const existingHostelCode = await Hostel.findOne({ code: hostelCode })
+  if (existingHostelCode) {
+    hostelCode = `${hostelCode}${Math.floor(10 + Math.random() * 90)}`
+  }
+
+  // 1. Create Organization partition for this hostel
+  const invitationCode = `${cleanSlug.substring(0, 4).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
+  const org = await Organization.create({
+    name: hostelName.trim(),
+    slug: `${cleanSlug}-${Date.now().toString().slice(-4)}`,
+    invitationCode,
+    contactEmail: cleanEmail,
+    phone: contactPhone.trim(),
+    address: address.trim(),
+    city: city.trim(),
+    state: state.trim(),
+    status: "active",
+    plan: "standard",
+  })
+
+  // 2. Create the Hostel record in active status
+  const hostel = await Hostel.create({
+    organizationId: org._id,
+    name: hostelName.trim(),
+    code: hostelCode,
+    address: address.trim() || city.trim(),
+    contactInformation: {
+      wardenName: wardenName.trim(),
+      phone: contactPhone.trim(),
+      email: cleanEmail,
+    },
+    status: "active",
+  })
+
+  // 3. Hash password
+  const passwordHash = await bcrypt.hash(String(wardenPassword), 10)
+
+  // 4. Create User Account with Warden Role
+  const wardenUser = await User.create({
+    authenticationProvider: "local",
+    providerUserId: `warden_${cleanSlug}_${Date.now()}`,
+    name: wardenName.trim(),
+    email: cleanEmail,
+    username: `${cleanSlug.replace(/-/g, "_")}_warden`,
+    passwordHash,
+    role: ROLES.WARDEN, // AUTOMATICALLY ASSIGN WARDEN ROLE
+    organizationId: org._id,
+    organizationName: org.name,
+    authorizedHostels: [hostel._id],
+    hostelId: hostel._id,
+    hostelName: hostel.name,
+    accountStatus: "active",
+  })
+
+  org.createdBy = wardenUser._id
+  await org.save()
+
+  const token = generateToken(wardenUser)
+  return { user: wardenUser, hostel, organization: org, token }
+}
+
+/**
+ * Register a student and affiliate them with an active registered hostel
  */
 async function registerStudent({
   name,
   email,
   password,
-  invitationCode,
-  organizationId,
   hostelId,
   roomNumber = "",
   phone = "",
+  invitationCode,
+  organizationId,
 }) {
   if (!name || !email || !password) {
     const error = new Error("Name, email, and password are required")
+    error.statusCode = 400
+    throw error
+  }
+
+  if (String(password).length < 6) {
+    const error = new Error("Password must be at least 6 characters")
     error.statusCode = 400
     throw error
   }
@@ -382,44 +494,48 @@ async function registerStudent({
     throw error
   }
 
-  // Resolve Organization
+  // Validate hostel selection
+  if (!hostelId && !invitationCode) {
+    const error = new Error("Please select your registered hostel.")
+    error.statusCode = 400
+    throw error
+  }
+
+  let hostel = null
   let org = null
-  if (invitationCode) {
+
+  if (hostelId) {
+    hostel = await Hostel.findOne({ _id: hostelId, status: "active" })
+    if (!hostel) {
+      const error = new Error("Selected hostel is invalid or inactive. Please choose an active registered hostel.")
+      error.statusCode = 400
+      throw error
+    }
+    if (hostel.organizationId) {
+      org = await Organization.findById(hostel.organizationId)
+    }
+  } else if (invitationCode) {
     org = await Organization.findOne({
       invitationCode: String(invitationCode).trim().toUpperCase(),
       status: "active",
     })
     if (!org) {
-      const error = new Error("Invalid or inactive hostel invitation code. Please check with your hostel administrator.")
+      const error = new Error("Invalid or inactive hostel invitation code.")
       error.statusCode = 400
       throw error
     }
-  } else if (organizationId) {
-    org = await Organization.findOne({ _id: organizationId, status: "active" })
-    if (!org) {
-      const error = new Error("Selected hostel organization was not found.")
-      error.statusCode = 400
-      throw error
-    }
+    hostel = await Hostel.findOne({ organizationId: org._id, status: "active" })
   }
 
-  if (!org) {
-    const error = new Error("Hostel affiliation is required. Please provide a valid invitation code.")
+  if (!hostel) {
+    const error = new Error("No active registered hostel found. Please select an active hostel.")
     error.statusCode = 400
     throw error
   }
 
-  // Resolve Hostel/Building
-  let hostel = null
-  if (hostelId) {
-    hostel = await Hostel.findOne({ _id: hostelId, organizationId: org._id, status: "active" })
-  }
-  if (!hostel) {
-    hostel = await Hostel.findOne({ organizationId: org._id, status: "active" })
-  }
-
   const passwordHash = await bcrypt.hash(String(password), 10)
 
+  // Explicitly assign STUDENT role — never allow role injection
   const studentUser = await User.create({
     authenticationProvider: "local",
     providerUserId: `student_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -427,19 +543,19 @@ async function registerStudent({
     email: cleanEmail,
     passwordHash,
     role: ROLES.STUDENT,
-    organizationId: org._id,
-    organizationName: org.name,
-    invitationCodeUsed: org.invitationCode,
-    hostelId: hostel ? hostel._id : null,
-    hostelName: hostel ? hostel.name : "",
-    authorizedHostels: hostel ? [hostel._id] : [],
+    organizationId: org ? org._id : hostel.organizationId,
+    organizationName: org ? org.name : hostel.name,
+    invitationCodeUsed: org ? org.invitationCode : "",
+    hostelId: hostel._id,
+    hostelName: hostel.name,
+    authorizedHostels: [hostel._id],
     roomNumber: roomNumber ? String(roomNumber).trim() : "",
     phone: phone ? String(phone).trim() : "",
     accountStatus: "active",
   })
 
   const token = generateToken(studentUser)
-  return { user: studentUser, organization: org, token }
+  return { user: studentUser, hostel, organization: org, token }
 }
 
 /**
@@ -579,6 +695,7 @@ module.exports = {
   authenticateDemoRole,
   authenticateDevUser,
   registerOrganizationAndAdmin,
+  registerHostel,
   registerStudent,
   affiliateUserWithInvitationCode,
   getPublicOrganizations,
