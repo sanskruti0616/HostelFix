@@ -23,6 +23,9 @@ import {
   UserX,
   Wrench,
   X,
+  BarChart3,
+  CalendarClock,
+  ShieldAlert,
 } from "lucide-react"
 import type {
   Complaint,
@@ -31,8 +34,11 @@ import type {
   ComplaintStatus,
   StaffMember,
   User,
+  RecurringHotspot,
 } from "../types"
 import { api } from "../services/api"
+import AnalyticsDashboard from "../components/AnalyticsDashboard"
+import PreventiveMaintenancePlanner from "../components/PreventiveMaintenancePlanner"
 
 interface WardenDashboardProps {
   currentUser: User
@@ -58,7 +64,9 @@ export default function WardenDashboard({
   onRefresh,
 }: WardenDashboardProps) {
   // Navigation tabs
-  const [activeTab, setActiveTab] = useState<"complaints" | "staff">("complaints")
+  const [activeTab, setActiveTab] = useState<"complaints" | "analytics" | "recurring" | "preventive" | "staff">("complaints")
+  const [recurringHotspots, setRecurringHotspots] = useState<RecurringHotspot[]>([])
+  const [isLoadingHotspots, setIsLoadingHotspots] = useState(false)
 
   // Complaints filter state
   const [searchTerm, setSearchTerm] = useState("")
@@ -121,6 +129,19 @@ export default function WardenDashboard({
   useEffect(() => {
     fetchStaff()
   }, [])
+
+  useEffect(() => {
+    if (activeTab === "recurring") {
+      setIsLoadingHotspots(true)
+      api.recurrence
+        .getHotspots(30, currentUser.hostelId)
+        .then((res: { success: boolean; hotspots: RecurringHotspot[] }) => {
+          if (res.success) setRecurringHotspots(res.hotspots || [])
+        })
+        .catch((err: any) => console.error("Error loading recurring hotspots:", err))
+        .finally(() => setIsLoadingHotspots(false))
+    }
+  }, [activeTab, currentUser.hostelId])
 
   // Real database metrics computed from complaints
   const totalComplaints = complaints.length
@@ -400,6 +421,9 @@ export default function WardenDashboard({
             borderBottom: "2px solid #e2e8f0",
             marginBottom: "24px",
             paddingBottom: "4px",
+            overflowX: "auto",
+            whiteSpace: "nowrap",
+            scrollbarWidth: "none",
           }}
         >
           <button
@@ -417,10 +441,77 @@ export default function WardenDashboard({
               background: "transparent",
               color: activeTab === "complaints" ? "#4f46e5" : "#64748b",
               transition: "all 0.15s ease",
+              flexShrink: 0,
             }}
           >
             <ClipboardList size={18} />
             Complaints Management ({complaints.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab("analytics")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 18px",
+              fontSize: "15px",
+              fontWeight: 600,
+              cursor: "pointer",
+              border: "none",
+              borderBottom: activeTab === "analytics" ? "3px solid #4f46e5" : "3px solid transparent",
+              background: "transparent",
+              color: activeTab === "analytics" ? "#4f46e5" : "#64748b",
+              transition: "all 0.15s ease",
+              flexShrink: 0,
+            }}
+          >
+            <BarChart3 size={18} />
+            Maintenance Analytics
+          </button>
+
+          <button
+            onClick={() => setActiveTab("recurring")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 18px",
+              fontSize: "15px",
+              fontWeight: 600,
+              cursor: "pointer",
+              border: "none",
+              borderBottom: activeTab === "recurring" ? "3px solid #4f46e5" : "3px solid transparent",
+              background: "transparent",
+              color: activeTab === "recurring" ? "#4f46e5" : "#64748b",
+              transition: "all 0.15s ease",
+              flexShrink: 0,
+            }}
+          >
+            <ShieldAlert size={18} />
+            Recurring Issues
+          </button>
+
+          <button
+            onClick={() => setActiveTab("preventive")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 18px",
+              fontSize: "15px",
+              fontWeight: 600,
+              cursor: "pointer",
+              border: "none",
+              borderBottom: activeTab === "preventive" ? "3px solid #4f46e5" : "3px solid transparent",
+              background: "transparent",
+              color: activeTab === "preventive" ? "#4f46e5" : "#64748b",
+              transition: "all 0.15s ease",
+              flexShrink: 0,
+            }}
+          >
+            <CalendarClock size={18} />
+            Preventive Maintenance
           </button>
 
           <button
@@ -438,6 +529,7 @@ export default function WardenDashboard({
               background: "transparent",
               color: activeTab === "staff" ? "#4f46e5" : "#64748b",
               transition: "all 0.15s ease",
+              flexShrink: 0,
             }}
           >
             <Users size={18} />
@@ -653,6 +745,27 @@ export default function WardenDashboard({
                               AI: {(complaint.verification.result || "pending").replace("_", " ")}
                             </span>
                           )}
+                          {complaint.recurringReview?.isRecurring && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                padding: "2px 8px",
+                                borderRadius: "12px",
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                background: "#fef3c7",
+                                color: "#92400e",
+                              }}
+                              title="Recurring issue detected in this room and category"
+                            >
+                              <AlertCircle size={12} />
+                              {complaint.recurringReview.decision === "confirmed"
+                                ? "Recurring Issue"
+                                : "Possible Recurrence"}
+                            </span>
+                          )}
                         </div>
 
                         <h3>{complaint.title}</h3>
@@ -700,6 +813,188 @@ export default function WardenDashboard({
               )}
             </section>
           </>
+        )}
+
+        {/* TAB: MAINTENANCE ANALYTICS */}
+        {activeTab === "analytics" && (
+          <section className="analytics-section">
+            <AnalyticsDashboard
+              hostelId={currentUser.hostelId}
+              hostelName={currentUser.hostel || currentUser.hostelName}
+            />
+          </section>
+        )}
+
+        {/* TAB: RECURRING ISSUES */}
+        {activeTab === "recurring" && (
+          <section className="recurring-section">
+            <div className="recurring-card">
+              <div className="recurring-card-header">
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <div style={{ width: "42px", height: "42px", borderRadius: "12px", background: "#f5f3ff", color: "#7c3aed", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <ShieldAlert size={22} />
+                  </div>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: "19px", fontWeight: 800, color: "#111827", fontFamily: "Plus Jakarta Sans, sans-serif" }}>Recurring Maintenance Issues</h2>
+                    <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#64748b" }}>
+                      Proactive detection of repeated maintenance problems across rooms and categories in {currentUser.hostel || "your hostel"}.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 700, padding: "4px 10px", borderRadius: "999px", background: "#f5f3ff", color: "#7c3aed" }}>
+                    30-Day Window
+                  </span>
+                </div>
+              </div>
+
+              {/* Recurring Hotspots Overview */}
+              <div>
+                <h3 style={{ fontSize: "12px", fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 12px" }}>
+                  Problematic Location Hotspots (≥2 Complaints in 30 Days)
+                </h3>
+
+                {isLoadingHotspots ? (
+                  <div className="recurring-empty-box">
+                    <RefreshCw size={24} className="animate-spin text-purple-600" style={{ marginBottom: "6px" }} />
+                    <p style={{ fontSize: "13px", color: "#64748b", margin: 0 }}>Analyzing recurring problem locations...</p>
+                  </div>
+                ) : recurringHotspots.length > 0 ? (
+                  <div className="recurring-hotspots-grid">
+                    {recurringHotspots.map((h, idx) => (
+                      <div
+                        key={`${h.roomNumber}-${h.category}-${idx}`}
+                        className="recurring-hotspot-card"
+                      >
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "8px" }}>
+                            <span style={{ fontWeight: 800, color: "#111827", fontSize: "15px" }}>Room {h.roomNumber}</span>
+                            <span style={{ fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "999px", background: "#fee2e2", color: "#991b1b" }}>
+                              {h.complaintCount} Reports
+                            </span>
+                          </div>
+                          <span style={{ fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "6px", background: "#f1f5f9", color: "#475569", display: "inline-block", marginBottom: "8px" }}>
+                            {h.category}
+                          </span>
+                          <p style={{ fontSize: "12px", color: "#4b5563", margin: "0 0 8px", lineHeight: 1.45 }}>
+                            {h.suggestion}
+                          </p>
+                        </div>
+                        <div style={{ paddingTop: "8px", borderTop: "1px solid #f8fafc", fontSize: "11px", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span>Tickets: {(h.complaintNumbers || []).slice(0, 3).join(", ")}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="recurring-empty-box">
+                    <CheckCircle2 size={30} color="#10b981" style={{ marginBottom: "6px" }} />
+                    <p style={{ fontSize: "13px", fontWeight: 700, color: "#1f2937", margin: 0 }}>No Multi-Complaint Hotspots Detected</p>
+                    <p style={{ fontSize: "12px", color: "#64748b", margin: "3px 0 0" }}>
+                      No room in your hostel has logged 2 or more complaints in the same category over the last 30 days.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Complaints List with Recurrence Status */}
+              <div>
+                <h3 style={{ fontSize: "12px", fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", margin: "16px 0 12px" }}>
+                  Complaints with Recurrence Flags or Review Records
+                </h3>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {complaints
+                    .filter(
+                      (c) =>
+                        (c.recurringReview && c.recurringReview.isRecurring) ||
+                        (c.recurringReview && c.recurringReview.decision && c.recurringReview.decision !== "pending") ||
+                        recurringHotspots.some(
+                          (h) =>
+                            h.roomNumber.toLowerCase() === c.room.toLowerCase() &&
+                            h.category.toLowerCase() === c.category.toLowerCase()
+                        )
+                    )
+                    .map((c) => {
+                      const isConfirmed = c.recurringReview?.decision === "confirmed"
+                      const isUnrelated = c.recurringReview?.decision === "unrelated"
+
+                      return (
+                        <div
+                          key={c.id}
+                          className="recurring-complaint-item"
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
+                              <span style={{ fontFamily: "monospace", fontSize: "11px", fontWeight: 700, color: "#475569" }}>#{c.id}</span>
+                              <span style={{ fontWeight: 700, fontSize: "14px", color: "#111827" }}>{c.title}</span>
+                              <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "999px", background: "#f1f5f9", color: "#475569", fontWeight: 600 }}>
+                                Room {c.room} · {c.category}
+                              </span>
+                              {isConfirmed ? (
+                                <span style={{ fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "999px", background: "#f5f3ff", color: "#7c3aed" }}>
+                                  Confirmed Recurring
+                                </span>
+                              ) : isUnrelated ? (
+                                <span style={{ fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "999px", background: "#f1f5f9", color: "#64748b" }}>
+                                  Marked Unrelated
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "999px", background: "#fef3c7", color: "#92400e" }}>
+                                  Needs Review
+                                </span>
+                              )}
+                            </div>
+                            <p style={{ fontSize: "12px", color: "#64748b", margin: 0 }}>
+                              Reported by {c.studentName} · Status: {c.status}
+                              {c.recurringReview?.rootCauseNote && ` · Note: "${c.recurringReview.rootCauseNote}"`}
+                            </p>
+                          </div>
+
+                          <button
+                            onClick={() => onViewComplaint(c)}
+                            className="preventive-schedule-btn"
+                            style={{ padding: "7px 14px", fontSize: "12px", flexShrink: 0 }}
+                          >
+                            <span>Inspect & Review</span>
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      )
+                    })}
+
+                  {complaints.filter(
+                    (c) =>
+                      (c.recurringReview && c.recurringReview.isRecurring) ||
+                      recurringHotspots.some(
+                        (h) =>
+                          h.roomNumber.toLowerCase() === c.room.toLowerCase() &&
+                          h.category.toLowerCase() === c.category.toLowerCase()
+                      )
+                  ).length === 0 && (
+                    <div className="recurring-empty-box">
+                      <p style={{ margin: 0, fontSize: "13px", color: "#94a3b8" }}>
+                        No complaints are currently flagged as recurring in this hostel.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* TAB: PREVENTIVE MAINTENANCE PLANNER */}
+        {activeTab === "preventive" && (
+          <section className="preventive-section">
+            <PreventiveMaintenancePlanner
+              role="warden"
+              hostelId={currentUser.hostelId}
+              hostelName={currentUser.hostel || currentUser.hostelName}
+              currentUserId={currentUser.id}
+            />
+          </section>
         )}
 
         {/* TAB 2: MANAGE STAFF */}

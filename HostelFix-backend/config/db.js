@@ -16,6 +16,8 @@ function sanitizeMongoUri(rawUri) {
   )
 }
 
+let memoryServer = null
+
 async function connectDB(customUri) {
   if (isConnected && mongoose.connection.readyState === 1) {
     return mongoose.connection
@@ -46,7 +48,35 @@ async function connectDB(customUri) {
 
     return conn.connection
   } catch (error) {
-    console.error(`[Database] MongoDB connection failed: ${error.message}`)
+    const isTlsAlert80 =
+      error.message &&
+      (error.message.includes("SSL alert number 80") ||
+        error.message.includes("ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR"))
+
+    if (isTlsAlert80) {
+      console.warn(
+        `[Database] Notice: MongoDB Atlas TLS rejected connection (SSL Alert 80). Current public IP is not in Atlas Network Access list.`
+      )
+    } else {
+      console.error(`[Database] MongoDB connection failed: ${error.message}`)
+    }
+
+    // In test environment, fallback to MongoMemoryServer if remote Atlas rejects connection
+    if (process.env.NODE_ENV === "test" || process.env.ALLOW_MEMORY_FALLBACK === "true") {
+      try {
+        console.log("[Database] Falling back to in-memory MongoDB for test execution...")
+        const { MongoMemoryServer } = require("mongodb-memory-server")
+        memoryServer = await MongoMemoryServer.create()
+        const memUri = memoryServer.getUri()
+        const conn = await mongoose.connect(memUri, { dbName: "hostelfix_test" })
+        isConnected = true
+        console.log(`[Database] In-memory MongoDB connected successfully for tests: ${memUri}`)
+        return conn.connection
+      } catch (memErr) {
+        console.error("[Database] Memory server fallback failed:", memErr.message)
+      }
+    }
+
     throw error
   }
 }
@@ -56,6 +86,11 @@ async function disconnectDB() {
     await mongoose.disconnect()
     isConnected = false
     console.log("[Database] Disconnected from MongoDB")
+  }
+  if (memoryServer) {
+    await memoryServer.stop()
+    memoryServer = null
+    console.log("[Database] In-memory MongoDB stopped")
   }
 }
 

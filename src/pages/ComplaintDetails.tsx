@@ -18,6 +18,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react"
 import type { Complaint, ComplaintStatus, ComplaintUpdate, User } from "../types"
 import { api } from "../services/api"
+import RecurringIssueBanner from "../components/RecurringIssueBanner"
 
 interface ComplaintDetailsProps {
   complaint: Complaint
@@ -346,6 +347,21 @@ export default function ComplaintDetails({
           </section>
         )}
 
+        {/* Possible Recurring Issue Section */}
+        <section style={{ marginBottom: "20px" }}>
+          <RecurringIssueBanner
+            complaintId={complaint.mongoId || complaint.id}
+            complaintNumber={complaint.id}
+            category={complaint.category}
+            roomNumber={complaint.room}
+            initialRecurringReview={complaint.recurringReview}
+            canReview={isWarden || currentUser?.role === "admin"}
+            onReviewUpdated={() => {
+              onRefreshComplaint?.()
+            }}
+          />
+        </section>
+
         {/* Info Grid */}
         <section className="details-grid">
           <div className="details-card">
@@ -464,6 +480,131 @@ export default function ComplaintDetails({
                   <option value="rejected">Rejected</option>
                 </select>
               </div>
+            </div>
+          </section>
+        )}
+
+        {/* Staff Technician Field Operations Card */}
+        {currentUser?.role === "staff" && (
+          <section className="details-card" style={{ marginTop: "20px", borderLeft: "4px solid #4f46e5" }}>
+            <div className="details-card-header">
+              <Wrench size={20} color="#4f46e5" />
+              <div>
+                <h2>Technician Field Operations</h2>
+                <p>Advance repair status or request material parts for this ticket.</p>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "14px", alignItems: "center" }}>
+              {complaint.status === "assigned" && (
+                <button
+                  type="button"
+                  onClick={() => onStatusChange?.("in-progress", "Started on-site diagnosis and repair")}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "9px 18px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "#2563eb",
+                    color: "white",
+                    fontWeight: 600,
+                    fontSize: "13.5px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Wrench size={16} />
+                  <span>Start Work on Site</span>
+                </button>
+              )}
+
+              {complaint.status === "in-progress" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onStatusChange?.("need-material", "Waiting for replacement parts")}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "8px 16px",
+                      borderRadius: "8px",
+                      border: "1px solid #f59e0b",
+                      background: "#fffbeb",
+                      color: "#b45309",
+                      fontWeight: 600,
+                      fontSize: "13px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span>Request Parts / Need Material</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "9px 18px",
+                      borderRadius: "8px",
+                      border: "none",
+                      background: "#16a34a",
+                      color: "white",
+                      fontWeight: 600,
+                      fontSize: "13.5px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <CheckCircle2 size={16} />
+                    <span>Complete Resolution in Dashboard</span>
+                  </button>
+                </>
+              )}
+
+              {complaint.status === "need-material" && (
+                <button
+                  type="button"
+                  onClick={() => onStatusChange?.("in-progress", "Material received, resuming repair")}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "9px 18px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "#2563eb",
+                    color: "white",
+                    fontWeight: 600,
+                    fontSize: "13.5px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Wrench size={16} />
+                  <span>Resume Work (Parts Received)</span>
+                </button>
+              )}
+
+              {(complaint.status === "resolved" || complaint.status === "closed") && (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "6px 14px",
+                    borderRadius: "20px",
+                    background: "#dcfce7",
+                    color: "#166534",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                  }}
+                >
+                  <CheckCircle2 size={16} />
+                  <span>Ticket Completed & Resolved</span>
+                </div>
+              )}
             </div>
           </section>
         )}

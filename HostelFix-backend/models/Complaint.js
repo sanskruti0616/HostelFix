@@ -169,6 +169,19 @@ const complaintSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    recurringReview: {
+      isRecurring: { type: Boolean, default: false },
+      decision: {
+        type: String,
+        enum: ["pending", "confirmed", "unrelated"],
+        default: "pending",
+      },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      reviewedByName: { type: String, default: "" },
+      reviewedAt: { type: Date, default: null },
+      relatedComplaintIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Complaint" }],
+      rootCauseNote: { type: String, default: "", trim: true },
+    },
   },
   {
     timestamps: true,
@@ -181,6 +194,8 @@ complaintSchema.index({ organizationId: 1, status: 1 })
 complaintSchema.index({ organizationId: 1, hostelId: 1 })
 complaintSchema.index({ createdBy: 1, createdAt: -1 })
 complaintSchema.index({ hostelId: 1, status: 1 })
+complaintSchema.index({ hostelId: 1, roomNumber: 1, category: 1, createdAt: -1 })
+complaintSchema.index({ "recurringReview.decision": 1 })
 complaintSchema.index({ "assignedTo.staffId": 1, status: 1 })
 complaintSchema.index({ category: 1 })
 complaintSchema.index({ status: 1 })

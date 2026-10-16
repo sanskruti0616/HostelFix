@@ -112,7 +112,15 @@ function canAccessComplaint(user, complaint) {
     const assignedId = complaint.assignedTo && complaint.assignedTo.staffId
       ? complaint.assignedTo.staffId.toString()
       : null
-    return assignedId === user._id.toString()
+    if (assignedId && assignedId === user._id.toString()) return true
+    if (
+      complaint.assignedTo?.staffName &&
+      user.name &&
+      complaint.assignedTo.staffName.trim().toLowerCase() === user.name.trim().toLowerCase()
+    ) {
+      return true
+    }
+    return false
   }
 
   // Student can only access complaints created by them

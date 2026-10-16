@@ -7,13 +7,15 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "seed": "node scripts/seed.js",
-    "test": "node tests/api.test.js && node tests/multitenant.test.js && node tests/e2e_fixes.test.js && node tests/staff_workflow.test.js && node tests/affiliation_modes.test.js && node tests/complaint_verification_and_workflow.test.js && node tests/staff_activation.test.js",
+    "test": "node tests/api.test.js && node tests/multitenant.test.js && node tests/e2e_fixes.test.js && node tests/staff_workflow.test.js && node tests/affiliation_modes.test.js && node tests/complaint_verification_and_workflow.test.js && node tests/staff_activation.test.js && node tests/maintenance_analytics_and_planner.test.js && node tests/google_auth_and_analytics_fix.test.js",
     "test:multi": "node tests/multitenant.test.js",
     "test:fixes": "node tests/e2e_fixes.test.js",
     "test:staff": "node tests/staff_workflow.test.js",
     "test:staff-activation": "node tests/staff_activation.test.js",
     "test:affiliation": "node tests/affiliation_modes.test.js",
-    "test:verify": "node tests/complaint_verification_and_workflow.test.js"
+    "test:verify": "node tests/complaint_verification_and_workflow.test.js",
+    "test:maintenance": "node tests/maintenance_analytics_and_planner.test.js",
+    "test:google": "node tests/google_auth_and_analytics_fix.test.js"
   },
   "keywords": [],
   "author": "",

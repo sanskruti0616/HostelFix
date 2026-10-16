@@ -153,6 +153,34 @@ const STATUS_TRANSITIONS = {
   }, {}),
 }
 
+const PREVENTIVE_STATUS = {
+  SCHEDULED: "scheduled",
+  IN_PROGRESS: "in-progress",
+  COMPLETED: "completed",
+  OVERDUE: "overdue",
+  CANCELLED: "cancelled",
+}
+
+const ALL_PREVENTIVE_STATUSES = Object.values(PREVENTIVE_STATUS)
+
+const PREVENTIVE_PRIORITY = {
+  LOW: "low",
+  MEDIUM: "medium",
+  HIGH: "high",
+  URGENT: "urgent",
+}
+
+const ALL_PREVENTIVE_PRIORITIES = Object.values(PREVENTIVE_PRIORITY)
+
+const PREVENTIVE_FREQUENCY = {
+  ONE_TIME: "one-time",
+  WEEKLY: "weekly",
+  MONTHLY: "monthly",
+  QUARTERLY: "quarterly",
+}
+
+const ALL_PREVENTIVE_FREQUENCIES = Object.values(PREVENTIVE_FREQUENCY)
+
 module.exports = {
   ROLES,
   ALL_ROLES,
@@ -167,4 +195,10 @@ module.exports = {
   COMPLAINT_CATEGORY,
   ALL_CATEGORIES,
   STATUS_TRANSITIONS,
+  PREVENTIVE_STATUS,
+  ALL_PREVENTIVE_STATUSES,
+  PREVENTIVE_PRIORITY,
+  ALL_PREVENTIVE_PRIORITIES,
+  PREVENTIVE_FREQUENCY,
+  ALL_PREVENTIVE_FREQUENCIES,
 }

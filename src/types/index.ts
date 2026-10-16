@@ -168,6 +168,7 @@ export interface Complaint {
   assignedStaffId?: string
   verification?: VerificationDetails
   duplicateOf?: string
+  recurringReview?: RecurringReview
   resolvedAt?: string
   resolvedBy?: string
   workNotes?: string
@@ -177,6 +178,185 @@ export interface Complaint {
   ratedAt?: string
   createdAt: string
   updatedAt: string
+}
+
+export interface RecurringReview {
+  isRecurring: boolean
+  decision: "pending" | "confirmed" | "unrelated"
+  reviewedBy?: string
+  reviewedByName?: string
+  reviewedAt?: string
+  relatedComplaintIds?: string[]
+  rootCauseNote?: string
+}
+
+export interface RecurringMatch {
+  complaintId: string
+  complaintNumber: string
+  title: string
+  category: string
+  roomNumber: string
+  status: string
+  assignedStaff?: string
+  createdAt: string
+  resolvedAt?: string
+  similarityReason: string
+  decision: "pending" | "confirmed" | "unrelated"
+}
+
+export interface RecurringHotspot {
+  roomNumber: string
+  category: string
+  complaintCount: number
+  complaintNumbers: string[]
+  latestCreatedAt: string
+  suggestion: string
+}
+
+export type PreventivePriority = "low" | "medium" | "high" | "urgent"
+export type PreventiveFrequency = "one-time" | "weekly" | "monthly" | "quarterly"
+export type PreventiveStatus = "scheduled" | "in-progress" | "completed" | "overdue" | "cancelled"
+export type PreventiveDueState = "upcoming" | "due_soon" | "overdue" | "completed" | "cancelled"
+
+export interface PreventiveImage {
+  url: string
+  publicId?: string
+  uploadedAt?: string
+}
+
+export interface PreventiveTask {
+  id: string
+  mongoId?: string
+  taskNumber: string
+  title: string
+  description: string
+  category: ComplaintCategory | string
+  location: string
+  roomNumber?: string
+  building?: string
+  dueAt: string
+  priority: PreventivePriority
+  frequency: PreventiveFrequency
+  status: PreventiveStatus
+  dueState: PreventiveDueState
+  hostelId?: string
+  hostelName: string
+  organizationId?: string
+  assignedTo?: {
+    staffId?: string | null
+    staffName?: string
+    assignedAt?: string | null
+  } | null
+  createdBy: string
+  createdByName?: string
+  completedAt?: string | null
+  completedBy?: string | null
+  completionNotes?: string
+  completionImages?: PreventiveImage[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WardenAnalyticsSummary {
+  totalComplaints: number
+  newlySubmitted: number
+  pending: number
+  inProgress: number
+  resolved: number
+  rejected: number
+  overdue: number
+  avgResolutionHours: number
+  resolutionRate: number
+  slaComplianceRate: number
+  resolvedWithinSla: number
+}
+
+export interface CategoryBreakdown {
+  category: string
+  count: number
+  percentage: number
+  resolvedCount: number
+}
+
+export interface TrendDataPoint {
+  date: string
+  submitted: number
+  resolved: number
+}
+
+export interface LocationHotspot {
+  roomNumber: string
+  count: number
+  resolvedCount: number
+  pendingCount: number
+  categories: string[]
+}
+
+export interface StaffWorkloadItem {
+  staffId: string
+  staffName: string
+  email: string
+  specialization: string
+  assignedCount: number
+  inProgressCount: number
+  resolvedInPeriodCount: number
+  pendingCount: number
+}
+
+export interface WardenAnalyticsData {
+  summary: WardenAnalyticsSummary
+  categoryDistribution: CategoryBreakdown[]
+  trends: TrendDataPoint[]
+  locationHotspots: LocationHotspot[]
+  staffWorkload: StaffWorkloadItem[]
+  filterApplied: {
+    hostel: string
+    days: string | number
+    category: string
+    status: string
+  }
+}
+
+export interface AdminAnalyticsData {
+  hostelOverview: {
+    totalHostels: number
+    activeHostels: number
+    pendingHostels: number
+  }
+  userOverview?: {
+    totalUsers: number
+    students: number
+    wardens: number
+    staff: number
+    admins: number
+  }
+  complaintOverview: {
+    totalComplaints: number
+    openComplaints: number
+    resolvedComplaints: number
+    pendingVerification?: number
+    inProgress?: number
+    resolutionRate: number
+    avgResolutionHours: number
+  }
+  statusDistribution?: { status: string; count: number; percentage: number }[]
+  categoryDistribution: { category: string; count: number; percentage: number }[]
+  hostelPerformance: {
+    hostelId: string
+    hostelName: string
+    totalComplaints: number
+    openComplaints: number
+    resolvedComplaints: number
+    resolutionRate: number
+    avgResolutionHours: number
+  }[]
+  ratingsOverview?: {
+    totalRated: number
+    avgRating: number
+    breakdown: { [stars: number]: number }
+  }
+  platformTrend: { date: string; submitted: number }[]
+  recurringHotspots?: RecurringHotspot[]
 }
 
 export interface NotificationItem {

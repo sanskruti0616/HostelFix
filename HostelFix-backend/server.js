@@ -17,6 +17,8 @@ const uploadRoutes = require("./routes/uploadRoutes")
 const notificationRoutes = require("./routes/notificationRoutes")
 const dashboardRoutes = require("./routes/dashboardRoutes")
 const hostelRoutes = require("./routes/hostelRoutes")
+const analyticsRoutes = require("./routes/analyticsRoutes")
+const preventiveRoutes = require("./routes/preventiveRoutes")
 
 const app = express()
 const server = http.createServer(app)
@@ -115,6 +117,8 @@ app.use("/api", uploadRoutes)
 app.use("/api", notificationRoutes)
 app.use("/api", dashboardRoutes)
 app.use("/api", hostelRoutes)
+app.use("/api", analyticsRoutes)
+app.use("/api", preventiveRoutes)
 
 // ======================================================
 // 404 HANDLER

@@ -77,10 +77,20 @@ router.post("/auth/google", async (req, res) => {
       user: formatUserResponse(user),
     })
   } catch (error) {
+    const isDbError =
+      error.name === "MongoNetworkError" ||
+      error.name === "MongooseServerSelectionError" ||
+      (error.message && (error.message.includes("SSL routines") || error.message.includes("ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR")))
+
+    const statusCode = error.statusCode || (isDbError ? 503 : 401)
+    const userMessage = isDbError
+      ? "Database service temporarily unreachable. Please verify MongoDB Atlas network connectivity."
+      : error.message || "Google authentication failed"
+
     console.error("[Auth] Google Sign-In Error:", error.message)
-    res.status(error.statusCode || 401).json({
+    res.status(statusCode).json({
       success: false,
-      message: error.message || "Google authentication failed",
+      message: userMessage,
     })
   }
 })

@@ -22,9 +22,11 @@ import {
   User as UserIcon,
   Wrench,
   X,
+  CalendarClock,
 } from "lucide-react"
 import type { Complaint, ComplaintStatus, User } from "../types"
 import { api } from "../services/api"
+import PreventiveMaintenancePlanner from "../components/PreventiveMaintenancePlanner"
 
 interface StaffDashboardProps {
   currentUser: User
@@ -43,9 +45,13 @@ export default function StaffDashboard({
   onStatusChange,
   onRefresh,
 }: StaffDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"assigned" | "history" | "profile">("assigned")
+  const [activeTab, setActiveTab] = useState<"assigned" | "scheduled" | "history" | "profile">("assigned")
   const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [priorityFilter, setPriorityFilter] = useState<string>("all")
+  const [categoryFilter, setCategoryFilter] = useState<string>("all")
   const [historySearch, setHistorySearch] = useState("")
+  const [historyRatingFilter, setHistoryRatingFilter] = useState<string>("all")
 
   // Profile edit state
   const [phoneInput, setPhoneInput] = useState(currentUser.phone || "")
@@ -88,16 +94,22 @@ export default function StaffDashboard({
 
   const filteredActiveTasks = useMemo(() => {
     const query = search.trim().toLowerCase()
-    if (!query) return activeTasks
-    return activeTasks.filter(
-      (c) =>
+    return activeTasks.filter((c) => {
+      const matchesSearch =
+        !query ||
         c.title.toLowerCase().includes(query) ||
         c.room.toLowerCase().includes(query) ||
         c.category.toLowerCase().includes(query) ||
         c.id.toLowerCase().includes(query) ||
         c.studentName.toLowerCase().includes(query)
-    )
-  }, [activeTasks, search])
+
+      const matchesStatus = statusFilter === "all" || c.status === statusFilter
+      const matchesPriority = priorityFilter === "all" || c.priority === priorityFilter
+      const matchesCategory = categoryFilter === "all" || c.category === categoryFilter
+
+      return matchesSearch && matchesStatus && matchesPriority && matchesCategory
+    })
+  }, [activeTasks, search, statusFilter, priorityFilter, categoryFilter])
 
   // Completed work history
   const completedComplaints = useMemo(() => {
@@ -108,23 +120,34 @@ export default function StaffDashboard({
 
   const filteredHistory = useMemo(() => {
     const query = historySearch.trim().toLowerCase()
-    if (!query) return completedComplaints
-    return completedComplaints.filter(
-      (c) =>
+    return completedComplaints.filter((c) => {
+      const matchesSearch =
+        !query ||
         c.title.toLowerCase().includes(query) ||
         c.room.toLowerCase().includes(query) ||
         c.category.toLowerCase().includes(query) ||
         c.id.toLowerCase().includes(query) ||
         c.studentName.toLowerCase().includes(query) ||
         (c.workNotes && c.workNotes.toLowerCase().includes(query))
-    )
-  }, [completedComplaints, historySearch])
+
+      const matchesRating =
+        historyRatingFilter === "all" ||
+        (historyRatingFilter === "rated" && c.rating && c.rating > 0) ||
+        (historyRatingFilter === "unrated" && !c.rating) ||
+        (c.rating && String(c.rating) === historyRatingFilter)
+
+      return matchesSearch && matchesRating
+    })
+  }, [completedComplaints, historySearch, historyRatingFilter])
 
   // Real statistics
   const totalAssigned = assignedComplaints.length
   const pending = assignedComplaints.filter((c) => c.status === "assigned").length
   const inProgress = assignedComplaints.filter(
     (c) => c.status === "in-progress" || c.status === "need-material"
+  ).length
+  const urgentCount = activeTasks.filter(
+    (c) => c.priority === "urgent" || c.priority === "high"
   ).length
   const resolved = completedComplaints.length
 
@@ -352,6 +375,9 @@ export default function StaffDashboard({
             borderBottom: "2px solid #e2e8f0",
             marginBottom: "24px",
             paddingBottom: "4px",
+            overflowX: "auto",
+            whiteSpace: "nowrap",
+            scrollbarWidth: "none",
           }}
         >
           <button
@@ -369,10 +395,33 @@ export default function StaffDashboard({
               background: "transparent",
               color: activeTab === "assigned" ? "#4f46e5" : "#64748b",
               transition: "all 0.15s ease",
+              flexShrink: 0,
             }}
           >
             <Wrench size={18} />
-            Assigned Tasks ({pending + inProgress})
+            My Assigned Work ({pending + inProgress})
+          </button>
+
+          <button
+            onClick={() => setActiveTab("scheduled")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 18px",
+              fontSize: "15px",
+              fontWeight: 600,
+              cursor: "pointer",
+              border: "none",
+              borderBottom: activeTab === "scheduled" ? "3px solid #4f46e5" : "3px solid transparent",
+              background: "transparent",
+              color: activeTab === "scheduled" ? "#4f46e5" : "#64748b",
+              transition: "all 0.15s ease",
+              flexShrink: 0,
+            }}
+          >
+            <CalendarClock size={18} />
+            My Preventive Tasks
           </button>
 
           <button
@@ -390,6 +439,7 @@ export default function StaffDashboard({
               background: "transparent",
               color: activeTab === "history" ? "#4f46e5" : "#64748b",
               transition: "all 0.15s ease",
+              flexShrink: 0,
             }}
           >
             <History size={18} />
@@ -411,6 +461,7 @@ export default function StaffDashboard({
               background: "transparent",
               color: activeTab === "profile" ? "#4f46e5" : "#64748b",
               transition: "all 0.15s ease",
+              flexShrink: 0,
             }}
           >
             <UserIcon size={18} />
@@ -454,6 +505,24 @@ export default function StaffDashboard({
               </div>
 
               <div className="stat-card">
+                <div
+                  className="stat-icon"
+                  style={{
+                    background: urgentCount > 0 ? "#fef2f2" : "#f8fafc",
+                    color: urgentCount > 0 ? "#dc2626" : "#64748b",
+                  }}
+                >
+                  <AlertCircle size={22} />
+                </div>
+                <div>
+                  <span className="stat-value" style={{ color: urgentCount > 0 ? "#dc2626" : "#1e293b" }}>
+                    {urgentCount}
+                  </span>
+                  <span className="stat-label">Urgent / High Priority</span>
+                </div>
+              </div>
+
+              <div className="stat-card">
                 <div className="stat-icon stat-resolved">
                   <CheckCircle2 size={22} />
                 </div>
@@ -464,27 +533,99 @@ export default function StaffDashboard({
               </div>
             </section>
 
-            {/* Search */}
-            <div style={{ margin: "24px 0", position: "relative" }}>
-              <Search
-                size={18}
-                style={{ position: "absolute", left: "14px", top: "12px", color: "#94a3b8" }}
-              />
-              <input
-                type="text"
-                placeholder="Search active tasks by ID, room, student, or category..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+            {/* Filter Bar */}
+            <section className="filters-section" style={{ margin: "24px 0" }}>
+              <div
                 style={{
-                  width: "100%",
-                  padding: "10px 14px 10px 42px",
-                  borderRadius: "10px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "14px",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "12px",
                   background: "white",
+                  padding: "16px",
+                  borderRadius: "12px",
+                  border: "1px solid #e2e8f0",
+                  alignItems: "center",
                 }}
-              />
-            </div>
+              >
+                <div style={{ flex: 1, minWidth: "220px", position: "relative" }}>
+                  <Search
+                    size={18}
+                    style={{ position: "absolute", left: "12px", top: "11px", color: "#94a3b8" }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search active tasks by ID, room, student, or category..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "9px 12px 9px 38px",
+                      borderRadius: "8px",
+                      border: "1px solid #cbd5e1",
+                      fontSize: "14px",
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    style={{
+                      padding: "9px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid #cbd5e1",
+                      fontSize: "14px",
+                      background: "white",
+                    }}
+                  >
+                    <option value="all">All Active ({activeTasks.length})</option>
+                    <option value="assigned">Awaiting Action ({pending})</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="need-material">Waiting for Parts</option>
+                  </select>
+
+                  <select
+                    value={priorityFilter}
+                    onChange={(e) => setPriorityFilter(e.target.value)}
+                    style={{
+                      padding: "9px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid #cbd5e1",
+                      fontSize: "14px",
+                      background: "white",
+                    }}
+                  >
+                    <option value="all">All Priorities</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    style={{
+                      padding: "9px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid #cbd5e1",
+                      fontSize: "14px",
+                      background: "white",
+                    }}
+                  >
+                    <option value="all">All Categories</option>
+                    <option value="Electrical">Electrical</option>
+                    <option value="Plumbing">Plumbing</option>
+                    <option value="Cleaning">Cleaning</option>
+                    <option value="Furniture">Furniture</option>
+                    <option value="Water Supply">Water Supply</option>
+                    <option value="Security">Security</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+            </section>
 
             {/* Tasks List */}
             <section className="tasks-section">
@@ -522,6 +663,35 @@ export default function StaffDashboard({
                           <span>👤 Student: {complaint.studentName}</span>
                           <span>📅 Filed: {complaint.createdAt}</span>
                         </div>
+
+                        {/* Student Evidence Photographs Thumbnail Strip */}
+                        {complaint.evidenceImages && complaint.evidenceImages.length > 0 && (
+                          <div style={{ display: "flex", gap: "8px", marginTop: "10px", alignItems: "center" }}>
+                            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>Evidence:</span>
+                            <div style={{ display: "flex", gap: "6px", overflowX: "auto" }}>
+                              {complaint.evidenceImages.slice(0, 3).map((img, i) => (
+                                <img
+                                  key={i}
+                                  src={img.url}
+                                  alt="evidence thumbnail"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setZoomImage(img.url)
+                                  }}
+                                  title="Click to enlarge student evidence"
+                                  style={{
+                                    width: "44px",
+                                    height: "44px",
+                                    borderRadius: "6px",
+                                    objectFit: "cover",
+                                    border: "1.5px solid #cbd5e1",
+                                    cursor: "zoom-in",
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Status Action Buttons */}
@@ -644,6 +814,18 @@ export default function StaffDashboard({
           </>
         )}
 
+        {/* TAB: SCHEDULED PREVENTIVE MAINTENANCE */}
+        {activeTab === "scheduled" && (
+          <section className="scheduled-maintenance-section">
+            <PreventiveMaintenancePlanner
+              role="staff"
+              currentUserId={currentUser.id}
+              hostelId={currentUser.hostelId}
+              hostelName={currentUser.hostel || currentUser.hostelName}
+            />
+          </section>
+        )}
+
         {/* TAB 2: WORK HISTORY */}
         {activeTab === "history" && (
           <section className="work-history-section">
@@ -656,26 +838,57 @@ export default function StaffDashboard({
               </p>
             </div>
 
-            {/* History Search */}
-            <div style={{ marginBottom: "20px", position: "relative" }}>
-              <Search
-                size={18}
-                style={{ position: "absolute", left: "14px", top: "12px", color: "#94a3b8" }}
-              />
-              <input
-                type="text"
-                placeholder="Search completed jobs by room, title, category, or notes..."
-                value={historySearch}
-                onChange={(e) => setHistorySearch(e.target.value)}
+            {/* History Search & Filters */}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "12px",
+                marginBottom: "20px",
+                alignItems: "center",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: "220px", position: "relative" }}>
+                <Search
+                  size={18}
+                  style={{ position: "absolute", left: "14px", top: "12px", color: "#94a3b8" }}
+                />
+                <input
+                  type="text"
+                  placeholder="Search completed jobs by room, title, category, or notes..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px 10px 42px",
+                    borderRadius: "10px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "14px",
+                    background: "white",
+                  }}
+                />
+              </div>
+
+              <select
+                value={historyRatingFilter}
+                onChange={(e) => setHistoryRatingFilter(e.target.value)}
                 style={{
-                  width: "100%",
-                  padding: "10px 14px 10px 42px",
+                  padding: "10px 14px",
                   borderRadius: "10px",
                   border: "1px solid #cbd5e1",
                   fontSize: "14px",
                   background: "white",
                 }}
-              />
+              >
+                <option value="all">All Reviews ({completedComplaints.length})</option>
+                <option value="rated">Reviewed by Student</option>
+                <option value="unrated">Awaiting Review</option>
+                <option value="5">5 Stars (Excellent)</option>
+                <option value="4">4 Stars (Good)</option>
+                <option value="3">3 Stars (Fair)</option>
+                <option value="2">2 Stars (Poor)</option>
+                <option value="1">1 Star (Very Poor)</option>
+              </select>
             </div>
 
             {filteredHistory.length > 0 ? (

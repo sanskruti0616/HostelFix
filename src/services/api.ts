@@ -9,6 +9,12 @@ import type {
   Hostel,
   ComplaintUpdate,
   StaffMember,
+  WardenAnalyticsData,
+  AdminAnalyticsData,
+  RecurringMatch,
+  RecurringHotspot,
+  PreventiveTask,
+  PreventiveStatus,
 } from "../types"
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000"
@@ -646,6 +652,167 @@ export const api = {
         staffWorkload: { staffName: string; totalTasks: number; resolvedTasks: number }[]
         verificationOutcomes: Record<string, number>
       }>("/api/dashboard/admin")
+    },
+  },
+
+  // ===================================================
+  // MAINTENANCE ANALYTICS
+  // ===================================================
+  analytics: {
+    async getWarden(filters: {
+      days?: string | number
+      startDate?: string
+      endDate?: string
+      category?: string
+      status?: string
+      priority?: string
+      room?: string
+      staffId?: string
+      hostelId?: string
+    } = {}) {
+      const params = new URLSearchParams()
+      if (filters.days) params.set("days", String(filters.days))
+      if (filters.startDate) params.set("startDate", filters.startDate)
+      if (filters.endDate) params.set("endDate", filters.endDate)
+      if (filters.category && filters.category !== "all") params.set("category", filters.category)
+      if (filters.status && filters.status !== "all") params.set("status", filters.status)
+      if (filters.priority && filters.priority !== "all") params.set("priority", filters.priority)
+      if (filters.room) params.set("room", filters.room)
+      if (filters.staffId) params.set("staffId", filters.staffId)
+      if (filters.hostelId) params.set("hostelId", filters.hostelId)
+      return request<WardenAnalyticsData & { success: boolean }>(`/api/analytics/warden?${params.toString()}`)
+    },
+
+    async getAdmin() {
+      return request<AdminAnalyticsData & { success: boolean }>("/api/analytics/admin")
+    },
+  },
+
+  // ===================================================
+  // RECURRING ISSUE DETECTION
+  // ===================================================
+  recurrence: {
+    async getMatches(complaintId: string, days = 30) {
+      return request<{
+        success: boolean
+        complaintId: string
+        complaintNumber: string
+        category: string
+        roomNumber: string
+        hostelName: string
+        timeWindowDays: number
+        count: number
+        matches: RecurringMatch[]
+        rootCauseSuggestion: string
+        recurringReview?: any
+      }>(`/api/complaints/${encodeURIComponent(complaintId)}/recurring-matches?days=${days}`)
+    },
+
+    async submitReview(
+      complaintId: string,
+      payload: {
+        decision: "confirmed" | "unrelated"
+        rootCauseNote?: string
+        relatedComplaintIds?: string[]
+      }
+    ) {
+      return request<{
+        success: boolean
+        message: string
+        complaint: Complaint
+      }>(`/api/complaints/${encodeURIComponent(complaintId)}/recurring-review`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    async getHotspots(days = 30, hostelId?: string) {
+      const query = hostelId ? `?days=${days}&hostelId=${encodeURIComponent(hostelId)}` : `?days=${days}`
+      return request<{
+        success: boolean
+        count: number
+        timeWindowDays: number
+        hotspots: RecurringHotspot[]
+      }>(`/api/complaints-analytics/recurring-hotspots${query}`)
+    },
+  },
+
+  // ===================================================
+  // PREVENTIVE MAINTENANCE PLANNER
+  // ===================================================
+  preventive: {
+    async list(filters: {
+      status?: string
+      category?: string
+      priority?: string
+      dueState?: string
+      search?: string
+      page?: number
+      limit?: number
+    } = {}) {
+      const params = new URLSearchParams()
+      if (filters.status && filters.status !== "all") params.set("status", filters.status)
+      if (filters.category && filters.category !== "all") params.set("category", filters.category)
+      if (filters.priority && filters.priority !== "all") params.set("priority", filters.priority)
+      if (filters.dueState && filters.dueState !== "all") params.set("dueState", filters.dueState)
+      if (filters.search) params.set("search", filters.search)
+      if (filters.page) params.set("page", String(filters.page))
+      if (filters.limit) params.set("limit", String(filters.limit))
+      return request<{
+        success: boolean
+        count: number
+        total: number
+        page: number
+        tasks: PreventiveTask[]
+      }>(`/api/preventive-tasks?${params.toString()}`)
+    },
+
+    async getById(id: string) {
+      return request<{
+        success: boolean
+        task: PreventiveTask
+      }>(`/api/preventive-tasks/${encodeURIComponent(id)}`)
+    },
+
+    async create(payload: {
+      title: string
+      description: string
+      category: string
+      location: string
+      roomNumber?: string
+      building?: string
+      dueAt: string
+      priority?: string
+      frequency?: string
+      assignedStaffId?: string
+      hostelId?: string
+    }) {
+      return request<{
+        success: boolean
+        message: string
+        task: PreventiveTask
+      }>("/api/preventive-tasks", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    async updateStatus(
+      id: string,
+      payload: {
+        status: PreventiveStatus
+        completionNotes?: string
+        completionImages?: any[]
+      }
+    ) {
+      return request<{
+        success: boolean
+        message: string
+        task: PreventiveTask
+      }>(`/api/preventive-tasks/${encodeURIComponent(id)}/status`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      })
     },
   },
 

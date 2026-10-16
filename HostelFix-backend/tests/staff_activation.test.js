@@ -1,6 +1,7 @@
 const assert = require("assert")
 const dotenv = require("dotenv")
 dotenv.config()
+process.env.ALLOW_MEMORY_FALLBACK = "true"
 
 const { connectDB, disconnectDB } = require("../config/db")
 const Organization = require("../models/Organization")

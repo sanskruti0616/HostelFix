@@ -40,37 +40,94 @@ function generateToken(user) {
  * Verify Google ID Token received from Google Sign-In button
  */
 async function verifyGoogleIdToken(idToken) {
-  if (!idToken) {
-    throw new Error("Google ID token is required")
+  if (!idToken || typeof idToken !== "string" || !idToken.trim()) {
+    const err = new Error("Google ID token is required")
+    err.statusCode = 400
+    throw err
   }
 
-  if (GOOGLE_CLIENT_ID) {
-    const ticket = await googleClient.verifyIdToken({
-      idToken,
-      audience: GOOGLE_CLIENT_ID,
-    })
-    const payload = ticket.getPayload()
-    return {
-      providerUserId: payload.sub,
-      email: payload.email.toLowerCase(),
-      name: payload.name || payload.email.split("@")[0],
-      profileImage: payload.picture || "",
-      emailVerified: payload.email_verified,
+  const clientId = GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID
+  if (!clientId) {
+    const err = new Error("Google OAuth Client ID is not configured on the server")
+    err.statusCode = 500
+    throw err
+  }
+
+  // Attempt verification with single retry for transient network / TLS glitches
+  let lastError = null
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: idToken.trim(),
+        audience: clientId,
+      })
+      const payload = ticket.getPayload()
+      if (!payload || !payload.sub || !payload.email) {
+        const err = new Error("Google token payload does not contain required identity claims")
+        err.statusCode = 401
+        throw err
+      }
+
+      return {
+        providerUserId: payload.sub,
+        email: payload.email.toLowerCase(),
+        name: payload.name || payload.email.split("@")[0],
+        profileImage: payload.picture || "",
+        emailVerified: payload.email_verified,
+      }
+    } catch (error) {
+      lastError = error
+      const msg = error.message || ""
+      const isTransientNetworkOrTls =
+        msg.includes("SSL") ||
+        msg.includes("ERR_SSL") ||
+        msg.includes("ETIMEDOUT") ||
+        msg.includes("ECONNRESET") ||
+        msg.includes("ENOTFOUND")
+
+      if (isTransientNetworkOrTls && attempt < 2) {
+        // Wait 250ms and retry once
+        await new Promise((r) => setTimeout(r, 250))
+        continue
+      }
+      break
     }
   }
 
-  const decoded = jwt.decode(idToken)
-  if (!decoded || !decoded.sub || !decoded.email) {
-    throw new Error("Invalid Google ID token structure")
+  // Map known error categories to specific status codes and user-friendly messages
+  const errMessage = lastError ? lastError.message : "Unknown token verification error"
+  if (errMessage.includes("Wrong recipient") || errMessage.includes("audience")) {
+    const err = new Error("Invalid token audience: Token was not issued for this application")
+    err.statusCode = 401
+    throw err
   }
 
-  return {
-    providerUserId: decoded.sub,
-    email: decoded.email.toLowerCase(),
-    name: decoded.name || decoded.email.split("@")[0],
-    profileImage: decoded.picture || "",
-    emailVerified: decoded.email_verified,
+  if (
+    errMessage.includes("Token used too late") ||
+    errMessage.includes("expired") ||
+    errMessage.includes("Wrong number of segments") ||
+    errMessage.includes("No pem found")
+  ) {
+    const err = new Error("Google ID token is invalid or expired")
+    err.statusCode = 401
+    throw err
   }
+
+  if (
+    errMessage.includes("SSL") ||
+    errMessage.includes("ERR_SSL") ||
+    errMessage.includes("ETIMEDOUT") ||
+    errMessage.includes("ECONNRESET") ||
+    errMessage.includes("ENOTFOUND")
+  ) {
+    const err = new Error("Google authentication service is currently unreachable due to network connectivity. Please try again or use email/password login.")
+    err.statusCode = 503
+    throw err
+  }
+
+  const err = new Error(errMessage)
+  err.statusCode = lastError.statusCode || 401
+  throw err
 }
 
 /**

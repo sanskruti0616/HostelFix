@@ -18,6 +18,7 @@ const {
 const { runVerificationPipeline } = require("../services/aiVerificationService")
 const { sendNotification, notifyWardens } = require("../services/notificationService")
 const { broadcast, emitToRole, emitToUser } = require("../services/socketService")
+const { findPossibleRecurringMatches, getRecurringHotspots } = require("../services/recurrenceService")
 
 /**
  * Robust helper to build query matching by ObjectId or complaintNumber (with or without HF- prefix)
@@ -81,6 +82,17 @@ function formatComplaint(c) {
     assignedStaffId: c.assignedTo?.staffId || undefined,
     verification: c.verification || undefined,
     duplicateOf: c.duplicateOf || undefined,
+    recurringReview: c.recurringReview
+      ? {
+          isRecurring: Boolean(c.recurringReview.isRecurring),
+          decision: c.recurringReview.decision || "pending",
+          reviewedBy: c.recurringReview.reviewedBy?.toString() || undefined,
+          reviewedByName: c.recurringReview.reviewedByName || undefined,
+          reviewedAt: c.recurringReview.reviewedAt ? c.recurringReview.reviewedAt.toISOString() : undefined,
+          relatedComplaintIds: (c.recurringReview.relatedComplaintIds || []).map((id) => id.toString()),
+          rootCauseNote: c.recurringReview.rootCauseNote || "",
+        }
+      : undefined,
     resolvedAt: c.resolvedAt,
     resolvedBy: c.resolvedBy,
     workNotes: c.workNotes || "",
@@ -126,7 +138,10 @@ router.get("/complaints", authenticate, async (req, res) => {
     if (req.user.role === ROLES.STUDENT) {
       filter.createdBy = req.user._id
     } else if (req.user.role === ROLES.STAFF) {
-      filter["assignedTo.staffId"] = req.user._id
+      filter.$or = [
+        { "assignedTo.staffId": req.user._id },
+        { "assignedTo.staffName": req.user.name },
+      ]
     } else if (req.user.role === ROLES.WARDEN) {
       if (req.user.authorizedHostels && req.user.authorizedHostels.length > 0) {
         filter.$or = [
@@ -494,6 +509,21 @@ router.post("/complaints", authenticate, authorizeRoles(ROLES.STUDENT, ROLES.ADM
       complaint.duplicateOf = verificationResult.duplicateMatches[0].complaintId
     }
 
+    // Non-blocking rule-based recurring issue detection within the same hostel
+    try {
+      const recurrenceCheck = await findPossibleRecurringMatches(complaint, { timeWindowDays: 30 })
+      if (recurrenceCheck && recurrenceCheck.count > 0) {
+        complaint.recurringReview = {
+          isRecurring: true,
+          decision: "pending",
+          relatedComplaintIds: recurrenceCheck.matches.map((m) => m.complaintId),
+          rootCauseNote: recurrenceCheck.rootCauseSuggestion || "",
+        }
+      }
+    } catch (recurErr) {
+      console.warn("[Complaints] Non-blocking recurrence check error:", recurErr.message)
+    }
+
     await complaint.save()
 
     // Real-time notifications
@@ -626,6 +656,159 @@ router.post("/complaints/:id/verify", authenticate, authorizeRoles(ROLES.WARDEN,
     })
   }
 })
+
+/**
+ * @route   GET /api/complaints/:id/recurring-matches
+ * @desc    Find potential recurring complaints in same hostel, room, and category
+ * @access  Private (Warden, Admin, Student for their own)
+ */
+router.get("/complaints/:id/recurring-matches", authenticate, async (req, res) => {
+  try {
+    const query = buildComplaintQuery(req.params.id)
+    if (!query) {
+      return res.status(400).json({ success: false, message: "Invalid complaint identifier" })
+    }
+
+    const complaint = await Complaint.findOne(query)
+    if (!complaint) {
+      return res.status(404).json({ success: false, message: "Complaint not found" })
+    }
+
+    if (!canAccessComplaint(req.user, complaint)) {
+      return res.status(403).json({ success: false, message: "Unauthorized for this complaint" })
+    }
+
+    const days = parseInt(req.query.days, 10) || 30
+    const result = await findPossibleRecurringMatches(complaint, { timeWindowDays: days })
+
+    res.json({
+      success: true,
+      complaintId: complaint._id.toString(),
+      complaintNumber: complaint.complaintNumber,
+      category: complaint.category,
+      roomNumber: complaint.roomNumber,
+      hostelName: complaint.hostelName,
+      timeWindowDays: result.timeWindowDays,
+      count: result.count,
+      matches: result.matches,
+      rootCauseSuggestion: result.rootCauseSuggestion,
+      recurringReview: complaint.recurringReview,
+    })
+  } catch (error) {
+    console.error("[Complaint] Recurring matches error:", error.message)
+    res.status(500).json({ success: false, message: "Failed to load recurring matches: " + error.message })
+  }
+})
+
+/**
+ * @route   POST /api/complaints/:id/recurring-review
+ * @desc    Warden reviews and confirms or marks recurring issue as unrelated
+ * @access  Private (Warden, Admin)
+ */
+router.post(
+  "/complaints/:id/recurring-review",
+  authenticate,
+  authorizeRoles(ROLES.WARDEN, ROLES.ADMIN),
+  async (req, res) => {
+    try {
+      const { decision, rootCauseNote = "", relatedComplaintIds = [] } = req.body
+
+      if (!decision || !["confirmed", "unrelated"].includes(decision)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid review decision. Supported values are 'confirmed' or 'unrelated'.",
+        })
+      }
+
+      const query = buildComplaintQuery(req.params.id)
+      if (!query) {
+        return res.status(400).json({ success: false, message: "Invalid complaint identifier" })
+      }
+
+      const complaint = await Complaint.findOne(query)
+      if (!complaint) {
+        return res.status(404).json({ success: false, message: "Complaint not found" })
+      }
+
+      if (!canAccessComplaint(req.user, complaint)) {
+        return res.status(403).json({ success: false, message: "Unauthorized for this complaint" })
+      }
+
+      // Convert related IDs to valid ObjectIds where possible
+      const validRelatedIds = (relatedComplaintIds || [])
+        .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        .map((id) => new mongoose.Types.ObjectId(id))
+
+      complaint.recurringReview = {
+        isRecurring: decision === "confirmed",
+        decision,
+        reviewedBy: req.user._id,
+        reviewedByName: req.user.name,
+        reviewedAt: new Date(),
+        relatedComplaintIds:
+          validRelatedIds.length > 0
+            ? validRelatedIds
+            : complaint.recurringReview?.relatedComplaintIds || [],
+        rootCauseNote: rootCauseNote ? rootCauseNote.trim() : (complaint.recurringReview?.rootCauseNote || ""),
+      }
+
+      await complaint.save()
+      const formatted = formatComplaint(complaint)
+      broadcast("complaint:updated", formatted)
+
+      res.json({
+        success: true,
+        message: `Recurring issue review persisted as ${decision}.`,
+        complaint: formatted,
+      })
+    } catch (error) {
+      console.error("[Complaint] Recurring review error:", error.message)
+      res.status(500).json({ success: false, message: "Failed to persist recurring review: " + error.message })
+    }
+  }
+)
+
+/**
+ * @route   GET /api/complaints-analytics/recurring-hotspots
+ * @desc    Get rooms with multiple repeated complaints in the same category
+ * @access  Private (Warden, Admin)
+ */
+router.get(
+  "/complaints-analytics/recurring-hotspots",
+  authenticate,
+  authorizeRoles(ROLES.WARDEN, ROLES.ADMIN),
+  async (req, res) => {
+    try {
+      const filter = {}
+      if (req.user.role !== ROLES.PLATFORM_ADMIN && req.user.organizationId) {
+        filter.organizationId = req.user.organizationId
+      }
+
+      if (req.user.role === ROLES.WARDEN) {
+        if (req.user.hostelId) {
+          filter.hostelId = req.user.hostelId
+        } else if (req.user.hostelName) {
+          filter.hostelName = { $regex: new RegExp(`^${escapeRegex(req.user.hostelName.trim())}$`, "i") }
+        }
+      } else if (req.query.hostelId) {
+        filter.hostelId = new mongoose.Types.ObjectId(req.query.hostelId)
+      }
+
+      const days = parseInt(req.query.days, 10) || 30
+      const hotspots = await getRecurringHotspots(filter, days)
+
+      res.json({
+        success: true,
+        count: hotspots.length,
+        timeWindowDays: days,
+        hotspots,
+      })
+    } catch (error) {
+      console.error("[Complaint] Hotspots error:", error.message)
+      res.status(500).json({ success: false, message: "Failed to get recurring hotspots: " + error.message })
+    }
+  }
+)
 
 /**
  * @route   POST /api/complaints/:id/assign
