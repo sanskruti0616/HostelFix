@@ -106,10 +106,17 @@ async function authenticateGoogleUser(idToken, affiliationData = {}) {
           hostel = await Hostel.findOne({ organizationId: org._id, status: "active" })
         }
       }
+    } else if (affiliationData.hostelId) {
+      hostel = await Hostel.findOne({ _id: affiliationData.hostelId, status: "active" })
+      if (hostel && hostel.organizationId) {
+        org = await Organization.findOne({ _id: hostel.organizationId, status: "active" })
+      }
     }
 
-    if (!org) {
+    if (!org && !hostel) {
       accountStatus = "pending_affiliation"
+    } else if (org && org.settings && org.settings.allowStudentSelfRegistration === false && !affiliationData.invitationCode) {
+      accountStatus = "pending_approval"
     }
 
     // Provision new user record in MongoDB Atlas
@@ -136,20 +143,34 @@ async function authenticateGoogleUser(idToken, affiliationData = {}) {
       user.profileImage = profile.profileImage
     }
 
-    // If user was pending affiliation and now supplied valid code
-    if (user.accountStatus === "pending_affiliation" && affiliationData.invitationCode) {
-      const org = await Organization.findOne({
-        invitationCode: affiliationData.invitationCode.trim().toUpperCase(),
-        status: "active",
-      })
-      if (org) {
-        const hostel = await Hostel.findOne({ organizationId: org._id, status: "active" })
-        user.organizationId = org._id
-        user.organizationName = org.name
-        user.hostelId = hostel ? hostel._id : null
-        user.hostelName = hostel ? hostel.name : ""
-        user.authorizedHostels = hostel ? [hostel._id] : []
-        user.accountStatus = "active"
+    // If user was pending affiliation and now supplied valid code or hostel
+    if (user.accountStatus === "pending_affiliation") {
+      if (affiliationData.invitationCode) {
+        const org = await Organization.findOne({
+          invitationCode: affiliationData.invitationCode.trim().toUpperCase(),
+          status: "active",
+        })
+        if (org) {
+          const hostel = await Hostel.findOne({ organizationId: org._id, status: "active" })
+          user.organizationId = org._id
+          user.organizationName = org.name
+          user.hostelId = hostel ? hostel._id : null
+          user.hostelName = hostel ? hostel.name : ""
+          user.authorizedHostels = hostel ? [hostel._id] : []
+          user.accountStatus = "active"
+        }
+      } else if (affiliationData.hostelId) {
+        const hostel = await Hostel.findOne({ _id: affiliationData.hostelId, status: "active" })
+        if (hostel) {
+          const org = await Organization.findOne({ _id: hostel.organizationId, status: "active" })
+          user.organizationId = org ? org._id : hostel.organizationId
+          user.organizationName = org ? org.name : hostel.name
+          user.hostelId = hostel._id
+          user.hostelName = hostel.name
+          user.authorizedHostels = [hostel._id]
+          const requiresApproval = Boolean(org && org.settings && org.settings.allowStudentSelfRegistration === false)
+          user.accountStatus = requiresApproval ? "pending_approval" : "active"
+        }
       }
     }
     await user.save()
@@ -195,6 +216,13 @@ async function authenticateLocalUser(identifier, password) {
   if (!user || !user.passwordHash) {
     const error = new Error("Invalid email/username or password")
     error.statusCode = 401
+    throw error
+  }
+
+  if (user.accountStatus === "pending_activation") {
+    const error = new Error("This account is pending activation. Please use your activation link or activation code to set your password.")
+    error.statusCode = 403
+    error.code = "PENDING_ACTIVATION"
     throw error
   }
 
@@ -559,27 +587,18 @@ async function registerStudent({
 }
 
 /**
- * Affiliate an unassigned student with an invitation code
+ * Affiliate an unassigned student using either:
+ * - Invitation Code Mode (requires valid invitation code)
+ * - Directory Mode (requires valid registered hostel / organization selection)
  */
-async function affiliateUserWithInvitationCode(userId, invitationCode, roomNumber = "") {
-  if (!invitationCode) {
-    const error = new Error("Invitation code is required")
-    error.statusCode = 400
-    throw error
-  }
-
-  const org = await Organization.findOne({
-    invitationCode: String(invitationCode).trim().toUpperCase(),
-    status: "active",
-  })
-  if (!org) {
-    const error = new Error("Invalid hostel invitation code.")
-    error.statusCode = 400
-    throw error
-  }
-
-  const hostel = await Hostel.findOne({ organizationId: org._id, status: "active" })
-
+async function affiliateUser({
+  userId,
+  invitationCode,
+  hostelId,
+  organizationId,
+  roomNumber = "",
+  mode,
+}) {
   const user = await User.findById(userId)
   if (!user) {
     const error = new Error("User not found")
@@ -587,20 +606,150 @@ async function affiliateUserWithInvitationCode(userId, invitationCode, roomNumbe
     throw error
   }
 
-  user.organizationId = org._id
-  user.organizationName = org.name
-  user.invitationCodeUsed = org.invitationCode
-  user.hostelId = hostel ? hostel._id : null
-  user.hostelName = hostel ? hostel.name : ""
-  user.authorizedHostels = hostel ? [hostel._id] : []
-  if (roomNumber) {
-    user.roomNumber = String(roomNumber).trim()
-  }
-  user.accountStatus = "active"
-  await user.save()
+  const cleanCode = invitationCode ? String(invitationCode).trim().toUpperCase() : ""
 
-  const token = generateToken(user)
-  return { user, organization: org, token }
+  // BRANCH 1: INVITATION MODE
+  if (cleanCode || mode === "invitation") {
+    if (!cleanCode) {
+      const error = new Error("Invitation code is required")
+      error.statusCode = 400
+      throw error
+    }
+
+    const org = await Organization.findOne({
+      invitationCode: cleanCode,
+      status: "active",
+    })
+    if (!org) {
+      const error = new Error("Invalid or inactive hostel invitation code.")
+      error.statusCode = 400
+      throw error
+    }
+
+    let hostel = null
+    if (hostelId) {
+      hostel = await Hostel.findOne({ _id: hostelId, organizationId: org._id, status: "active" })
+    }
+    if (!hostel) {
+      hostel = await Hostel.findOne({ organizationId: org._id, status: "active" })
+    }
+
+    user.organizationId = org._id
+    user.organizationName = org.name
+    user.invitationCodeUsed = org.invitationCode
+    user.hostelId = hostel ? hostel._id : null
+    user.hostelName = hostel ? hostel.name : ""
+    user.authorizedHostels = hostel ? [hostel._id] : []
+    if (roomNumber) {
+      user.roomNumber = String(roomNumber).trim()
+    }
+    user.accountStatus = "active"
+    await user.save()
+
+    const token = generateToken(user)
+    return {
+      user,
+      organization: org,
+      hostel,
+      token,
+      message: `Successfully joined ${org.name}!`,
+    }
+  }
+
+  // BRANCH 2: DIRECTORY MODE
+  if (hostelId || organizationId || mode === "directory") {
+    if (!hostelId && !organizationId) {
+      const error = new Error("Please select your registered hostel.")
+      error.statusCode = 400
+      throw error
+    }
+
+    let hostel = null
+    let org = null
+
+    if (hostelId) {
+      hostel = await Hostel.findOne({ _id: hostelId, status: "active" })
+      if (!hostel) {
+        const error = new Error("Selected hostel is invalid or inactive. Please choose an active registered hostel.")
+        error.statusCode = 400
+        throw error
+      }
+      if (hostel.organizationId) {
+        org = await Organization.findOne({ _id: hostel.organizationId, status: "active" })
+      }
+    } else if (organizationId) {
+      org = await Organization.findOne({ _id: organizationId, status: "active" })
+      if (!org) {
+        const error = new Error("Selected hostel organization is invalid or inactive.")
+        error.statusCode = 400
+        throw error
+      }
+      hostel = await Hostel.findOne({ organizationId: org._id, status: "active" })
+    }
+
+    if (!hostel && org) {
+      hostel = await Hostel.findOne({ organizationId: org._id })
+      if (!hostel) {
+        hostel = await Hostel.create({
+          organizationId: org._id,
+          name: `${org.name} Main Campus`,
+          code: (org.slug ? org.slug.substring(0, 4) : "HOST").toUpperCase(),
+          status: "active",
+        })
+      }
+    }
+
+    if (!hostel) {
+      const error = new Error("No active registered hostel found for this selection.")
+      error.statusCode = 400
+      throw error
+    }
+
+    const requiresApproval = Boolean(org && org.settings && org.settings.allowStudentSelfRegistration === false)
+    const targetStatus = requiresApproval ? "pending_approval" : "active"
+
+    user.organizationId = org ? org._id : hostel.organizationId
+    user.organizationName = org ? org.name : hostel.name
+    user.invitationCodeUsed = ""
+    user.hostelId = hostel._id
+    user.hostelName = hostel.name
+    user.authorizedHostels = [hostel._id]
+    if (roomNumber) {
+      user.roomNumber = String(roomNumber).trim()
+    }
+    user.accountStatus = targetStatus
+    await user.save()
+
+    const token = generateToken(user)
+    const message = requiresApproval
+      ? `Affiliation request submitted for ${hostel.name}. Awaiting warden approval.`
+      : `Successfully joined ${hostel.name}!`
+
+    return {
+      user,
+      organization: org || { name: hostel.name, _id: hostel.organizationId },
+      hostel,
+      token,
+      message,
+    }
+  }
+
+  // Neither mode matched
+  const error = new Error("Please provide an invitation code or select a registered hostel.")
+  error.statusCode = 400
+  throw error
+}
+
+/**
+ * Affiliate an unassigned student with an invitation code (backward compatible)
+ */
+async function affiliateUserWithInvitationCode(userId, invitationCode, roomNumber = "") {
+  return affiliateUser({
+    userId,
+    invitationCode,
+    roomNumber,
+    mode: "invitation",
+  })
 }
 
 /**
@@ -697,6 +846,7 @@ module.exports = {
   registerOrganizationAndAdmin,
   registerHostel,
   registerStudent,
+  affiliateUser,
   affiliateUserWithInvitationCode,
   getPublicOrganizations,
   verifyInvitationCode,

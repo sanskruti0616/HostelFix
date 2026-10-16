@@ -68,6 +68,8 @@ export default function ComplaintDetails({
   const [verifyAction, setVerifyAction] = useState<"approve" | "reject" | "request_info">("approve")
   const [verifyReason, setVerifyReason] = useState("")
   const [isSubmittingVerify, setIsSubmittingVerify] = useState(false)
+  const [verifyError, setVerifyError] = useState<string | null>(null)
+  const [verifySuccess, setVerifySuccess] = useState<string | null>(null)
 
   // Load real history from backend
   useEffect(() => {
@@ -113,13 +115,18 @@ export default function ComplaintDetails({
   const handleVerifySubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmittingVerify(true)
+    setVerifyError(null)
+    setVerifySuccess(null)
     try {
-      await api.complaints.verify(complaint.id, verifyAction, verifyReason)
-      setVerifyDialogOpen(false)
+      const res = await api.complaints.verify(complaint.id, verifyAction, verifyReason)
+      setVerifySuccess(res.message || `Complaint verification updated: ${verifyAction}`)
       onRefreshComplaint?.()
-      alert(`Complaint verification updated: ${verifyAction}`)
+      setTimeout(() => {
+        setVerifyDialogOpen(false)
+        setVerifySuccess(null)
+      }, 700)
     } catch (err: any) {
-      alert(err.message || "Failed to update verification")
+      setVerifyError(err.message || "Failed to update verification. Please try again.")
     } finally {
       setIsSubmittingVerify(false)
     }
@@ -271,6 +278,8 @@ export default function ComplaintDetails({
                   onClick={() => {
                     setVerifyAction("approve")
                     setVerifyReason("Verified complaint evidence and description.")
+                    setVerifyError(null)
+                    setVerifySuccess(null)
                     setVerifyDialogOpen(true)
                   }}
                   style={{
@@ -292,6 +301,8 @@ export default function ComplaintDetails({
                   onClick={() => {
                     setVerifyAction("request_info")
                     setVerifyReason("Please provide clearer photos or more specific location details.")
+                    setVerifyError(null)
+                    setVerifySuccess(null)
                     setVerifyDialogOpen(true)
                   }}
                   style={{
@@ -313,6 +324,8 @@ export default function ComplaintDetails({
                   onClick={() => {
                     setVerifyAction("reject")
                     setVerifyReason("Does not meet hostel maintenance criteria or duplicate record.")
+                    setVerifyError(null)
+                    setVerifySuccess(null)
                     setVerifyDialogOpen(true)
                   }}
                   style={{
@@ -962,6 +975,46 @@ export default function ComplaintDetails({
               Please provide documentation or comments explaining your decision.
             </p>
 
+            {verifyError && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "10px 14px",
+                  marginBottom: "14px",
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  borderRadius: "8px",
+                  color: "#b91c1c",
+                  fontSize: "13px",
+                }}
+              >
+                <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                <span>{verifyError}</span>
+              </div>
+            )}
+
+            {verifySuccess && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "10px 14px",
+                  marginBottom: "14px",
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: "8px",
+                  color: "#15803d",
+                  fontSize: "13px",
+                }}
+              >
+                <Check size={16} style={{ flexShrink: 0 }} />
+                <span>{verifySuccess}</span>
+              </div>
+            )}
+
             <form onSubmit={handleVerifySubmit}>
               <textarea
                 value={verifyReason}
@@ -969,6 +1022,7 @@ export default function ComplaintDetails({
                 placeholder="Reason or instructions for the record..."
                 rows={4}
                 required
+                disabled={isSubmittingVerify}
                 style={{
                   width: "100%",
                   padding: "10px",
@@ -976,6 +1030,7 @@ export default function ComplaintDetails({
                   border: "1px solid #cbd5e1",
                   fontFamily: "inherit",
                   marginBottom: "16px",
+                  opacity: isSubmittingVerify ? 0.7 : 1,
                 }}
               />
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
@@ -988,7 +1043,7 @@ export default function ComplaintDetails({
                     borderRadius: "8px",
                     border: "1px solid #cbd5e1",
                     background: "white",
-                    cursor: "pointer",
+                    cursor: isSubmittingVerify ? "not-allowed" : "pointer",
                   }}
                 >
                   Cancel
@@ -1003,7 +1058,8 @@ export default function ComplaintDetails({
                     background: verifyAction === "reject" ? "#dc2626" : "#2563eb",
                     color: "white",
                     fontWeight: 600,
-                    cursor: "pointer",
+                    cursor: isSubmittingVerify ? "not-allowed" : "pointer",
+                    opacity: isSubmittingVerify ? 0.7 : 1,
                   }}
                 >
                   {isSubmittingVerify ? "Submitting..." : "Confirm Decision"}

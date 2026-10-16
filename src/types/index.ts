@@ -79,7 +79,7 @@ export interface User {
   phone?: string
   profileImage?: string
   specialization?: string
-  accountStatus?: "active" | "pending" | "suspended" | "pending_affiliation"
+  accountStatus?: "active" | "pending" | "suspended" | "pending_affiliation" | "pending_approval" | "pending_activation"
   invitationCodeUsed?: string
 }
 
@@ -89,13 +89,15 @@ export interface StaffMember {
   email: string
   phone?: string
   specialization: string
-  accountStatus: "active" | "suspended"
+  accountStatus: "active" | "suspended" | "pending_activation"
   hostelId?: string
   hostelName?: string
   organizationId?: string
   organizationName?: string
   assignedCount: number
   completedCount: number
+  activationToken?: string
+  activationTokenExpires?: string
   createdAt?: string
 }
 

@@ -54,7 +54,7 @@ const userSchema = new mongoose.Schema(
     },
     accountStatus: {
       type: String,
-      enum: ["active", "pending_affiliation", "pending_approval", "pending", "suspended"],
+      enum: ["active", "pending_affiliation", "pending_approval", "pending", "pending_activation", "suspended"],
       default: "active",
       required: true,
     },
@@ -109,6 +109,16 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: "General Maintenance",
+    },
+    activationToken: {
+      type: String,
+      default: "",
+      trim: true,
+      index: true,
+    },
+    activationTokenExpires: {
+      type: Date,
+      default: null,
     },
     lastLoginAt: {
       type: Date,

@@ -20,6 +20,25 @@ const { sendNotification, notifyWardens } = require("../services/notificationSer
 const { broadcast, emitToRole, emitToUser } = require("../services/socketService")
 
 /**
+ * Robust helper to build query matching by ObjectId or complaintNumber (with or without HF- prefix)
+ */
+function buildComplaintQuery(param) {
+  if (!param) return null
+  const clean = String(param).trim()
+  if (/^[0-9a-fA-F]{24}$/.test(clean)) {
+    return { _id: clean }
+  }
+  const numOnly = clean.replace(/^HF-/, "")
+  return {
+    $or: [
+      { complaintNumber: clean },
+      { complaintNumber: `HF-${numOnly}` },
+      { complaintNumber: numOnly },
+    ],
+  }
+}
+
+/**
  * Helper to generate sequential or readable complaint numbers: HF-1001, HF-1002, etc.
  */
 async function generateNextComplaintNumber() {
@@ -239,11 +258,12 @@ router.get("/complaints/export/csv", authenticate, authorizeRoles(ROLES.WARDEN, 
 router.get("/complaints/:id", authenticate, async (req, res) => {
   try {
     const param = req.params.id
-    let query
-    if (param.startsWith("HF-")) {
-      query = { complaintNumber: param }
-    } else {
-      query = { _id: param }
+    const query = buildComplaintQuery(param)
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid complaint identifier",
+      })
     }
 
     const complaint = await Complaint.findOne(query)
@@ -521,7 +541,17 @@ router.post("/complaints/:id/verify", authenticate, authorizeRoles(ROLES.WARDEN,
   try {
     const { action, reason } = req.body // action: 'approve' | 'reject' | 'request_info'
     const param = req.params.id
-    const query = param.startsWith("HF-") ? { complaintNumber: param } : { _id: param }
+    const query = buildComplaintQuery(param)
+    if (!query) {
+      return res.status(400).json({ success: false, message: "Invalid complaint identifier" })
+    }
+
+    if (!action || !["approve", "reject", "request_info"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid action. Supported actions are 'approve', 'reject', or 'request_info'.",
+      })
+    }
 
     const complaint = await Complaint.findOne(query)
     if (!complaint) {
@@ -589,7 +619,11 @@ router.post("/complaints/:id/verify", authenticate, authorizeRoles(ROLES.WARDEN,
       complaint: formatComplaint(complaint),
     })
   } catch (error) {
-    res.status(500).json({ success: false, message: "Failed to verify complaint" })
+    console.error("[Complaint] Verification error:", error)
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to verify complaint",
+    })
   }
 })
 
@@ -602,8 +636,10 @@ router.patch("/complaints/:id/assign", authenticate, authorizeRoles(ROLES.WARDEN
   try {
     const { staff_id, staffId, staffName, instructions = "" } = req.body
     const param = req.params.id
-    const isHex = /^[0-9a-fA-F]{24}$/.test(param)
-    const query = isHex ? { _id: param } : { complaintNumber: param.startsWith("HF-") ? param : `HF-${param}` }
+    const query = buildComplaintQuery(param)
+    if (!query) {
+      return res.status(400).json({ success: false, message: "Invalid complaint identifier" })
+    }
 
     const complaint = await Complaint.findOne(query)
     if (!complaint) {
@@ -745,8 +781,10 @@ router.post("/complaints/:id/resolve", authenticate, authorizeRoles(ROLES.STAFF,
   try {
     const { note = "", workNotes = "", resolutionImages = [], photoUrl = "" } = req.body
     const param = req.params.id
-    const isHex = /^[0-9a-fA-F]{24}$/.test(param)
-    const query = isHex ? { _id: param } : { complaintNumber: param.startsWith("HF-") ? param : `HF-${param}` }
+    const query = buildComplaintQuery(param)
+    if (!query) {
+      return res.status(400).json({ success: false, message: "Invalid complaint identifier" })
+    }
 
     const complaint = await Complaint.findOne(query)
     if (!complaint) {
@@ -835,8 +873,10 @@ router.patch("/complaints/:id/status", authenticate, async (req, res) => {
   try {
     const { status, note = "", resolutionImages = [], workNotes = "", photoUrl = "" } = req.body
     const param = req.params.id
-    const isHex = /^[0-9a-fA-F]{24}$/.test(param)
-    const query = isHex ? { _id: param } : { complaintNumber: param.startsWith("HF-") ? param : `HF-${param}` }
+    const query = buildComplaintQuery(param)
+    if (!query) {
+      return res.status(400).json({ success: false, message: "Invalid complaint identifier" })
+    }
 
     const complaint = await Complaint.findOne(query)
     if (!complaint) {
@@ -951,7 +991,10 @@ router.patch("/complaints/:id/status", authenticate, async (req, res) => {
 router.get("/complaints/:id/updates", authenticate, async (req, res) => {
   try {
     const param = req.params.id
-    const query = param.startsWith("HF-") ? { complaintNumber: param } : { _id: param }
+    const query = buildComplaintQuery(param)
+    if (!query) {
+      return res.status(400).json({ success: false, message: "Invalid complaint identifier" })
+    }
 
     const complaint = await Complaint.findOne(query).select("_id complaintNumber createdBy hostelId hostelName")
     if (!complaint) {
@@ -1001,7 +1044,10 @@ router.post("/complaints/:id/feedback", authenticate, authorizeRoles(ROLES.STUDE
     }
 
     const param = req.params.id
-    const query = param.startsWith("HF-") ? { complaintNumber: param } : { _id: param }
+    const query = buildComplaintQuery(param)
+    if (!query) {
+      return res.status(400).json({ success: false, message: "Invalid complaint identifier" })
+    }
 
     const complaint = await Complaint.findOne(query)
     if (!complaint) {

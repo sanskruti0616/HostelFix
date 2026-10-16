@@ -265,6 +265,7 @@ export const api = {
       hostelId?: string
       hostelName?: string
       room?: string
+      mode?: "invitation" | "directory"
     }) {
       const data = await request<{
         success: boolean
@@ -282,6 +283,54 @@ export const api = {
         if (currentToken) setStoredAuth(currentToken, data.user)
       }
       return data
+    },
+
+    staff: {
+      async verifyToken(token: string) {
+        return request<{
+          success: boolean
+          valid: boolean
+          message?: string
+          staff: {
+            id: string
+            name: string
+            email: string
+            phone?: string
+            specialization?: string
+            hostelName?: string
+            organizationName?: string
+            accountStatus?: string
+          }
+        }>(`/api/auth/staff/verify-token?token=${encodeURIComponent(token)}`)
+      },
+
+      async activate(token: string, password: string) {
+        const data = await request<{
+          success: boolean
+          message: string
+          token: string
+          user: User
+        }>("/api/auth/staff/activate", {
+          method: "POST",
+          body: JSON.stringify({ token, password }),
+        })
+        setStoredAuth(data.token, data.user)
+        return data
+      },
+
+      async googleAuth(idToken: string, token?: string) {
+        const data = await request<{
+          success: boolean
+          message?: string
+          token: string
+          user: User
+        }>("/api/auth/staff/google", {
+          method: "POST",
+          body: JSON.stringify({ idToken, token }),
+        })
+        setStoredAuth(data.token, data.user)
+        return data
+      },
     },
 
     logout() {
@@ -303,6 +352,8 @@ export const api = {
     async verifyInvitationCode(code: string) {
       return request<{
         success: boolean
+        valid?: boolean
+        message?: string
         organization: Organization
         hostels: { id: string; name: string; code?: string }[]
       }>(`/api/auth/tenants/verify-code/${encodeURIComponent(code)}`)
@@ -433,23 +484,21 @@ export const api = {
     },
 
     async verify(complaintId: string, action: "approve" | "reject" | "request_info", reason: string) {
-      const idParam = complaintId.replace("HF-", "")
       return request<{
         success: boolean
         message: string
         complaint: Complaint
-      }>(`/api/complaints/${idParam}/verify`, {
+      }>(`/api/complaints/${encodeURIComponent(complaintId)}/verify`, {
         method: "POST",
         body: JSON.stringify({ action, reason }),
       })
     },
 
     async getUpdates(complaintId: string) {
-      const idParam = complaintId.replace("HF-", "")
       return request<{
         success: boolean
         updates: ComplaintUpdate[]
-      }>(`/api/complaints/${idParam}/updates`)
+      }>(`/api/complaints/${encodeURIComponent(complaintId)}/updates`)
     },
 
     async submitFeedback(
@@ -458,13 +507,12 @@ export const api = {
       comments = "",
       dimensions?: { workQuality?: number; timeliness?: number; professionalism?: number }
     ) {
-      const idParam = complaintId.replace("HF-", "")
       return request<{
         success: boolean
         message: string
         feedback: any
         complaint?: Complaint
-      }>(`/api/complaints/${idParam}/feedback`, {
+      }>(`/api/complaints/${encodeURIComponent(complaintId)}/feedback`, {
         method: "POST",
         body: JSON.stringify({ rating, comments, ...dimensions }),
       })
@@ -496,7 +544,6 @@ export const api = {
     },
 
     async uploadResolution(complaintId: string, files: File[], notes = "") {
-      const idParam = complaintId.replace("HF-", "")
       const formData = new FormData()
       files.forEach((file) => formData.append("images", file))
       formData.append("notes", notes)
@@ -505,7 +552,7 @@ export const api = {
         success: boolean
         message: string
         resolutionImages: any[]
-      }>(`/api/complaints/${idParam}/resolution-evidence`, {
+      }>(`/api/complaints/${encodeURIComponent(complaintId)}/resolution-evidence`, {
         method: "POST",
         body: formData,
       })
@@ -622,7 +669,7 @@ export const api = {
     async create(payload: {
       name: string
       email: string
-      password: string
+      password?: string
       phone?: string
       specialization?: string
       hostelId?: string
@@ -631,6 +678,8 @@ export const api = {
         success: boolean
         message: string
         staff: StaffMember
+        activationToken?: string
+        activationTokenExpires?: string
       }>("/api/users/staff", {
         method: "POST",
         body: JSON.stringify(payload),

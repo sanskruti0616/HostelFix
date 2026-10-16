@@ -17,11 +17,15 @@ import {
 interface LandingPageProps {
   onNavigateLogin: () => void
   onNavigateSignUp: (initialTab?: "student" | "organization") => void
+  onNavigateStaffLogin?: () => void
+  onNavigateStaffSignUp?: () => void
 }
 
 export default function LandingPage({
   onNavigateLogin,
   onNavigateSignUp,
+  onNavigateStaffLogin,
+  onNavigateStaffSignUp,
 }: LandingPageProps) {
   return (
     <div className="landing-page-wrapper" style={{ minHeight: "100vh", background: "#f8fafc", color: "#0f172a" }}>
@@ -129,7 +133,31 @@ export default function LandingPage({
           </nav>
 
           {/* Header Action Buttons */}
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {onNavigateStaffLogin && (
+              <button
+                onClick={onNavigateStaffLogin}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: "8px",
+                  border: "1px solid #fde68a",
+                  background: "#fef3c7",
+                  color: "#92400e",
+                  fontWeight: 600,
+                  fontSize: "13px",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  transition: "all 0.2s",
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.background = "#fde68a")}
+                onMouseOut={(e) => (e.currentTarget.style.background = "#fef3c7")}
+              >
+                <Wrench size={14} />
+                <span>Staff Portal</span>
+              </button>
+            )}
             <button
               onClick={onNavigateLogin}
               style={{
@@ -896,8 +924,10 @@ export default function LandingPage({
                 bg: "#fffbeb",
                 icon: Wrench,
                 desc: "View assigned work orders, update status to In-Progress, request materials, and upload completion photo proof.",
-                action: "Technician Sign In",
-                onClick: onNavigateLogin,
+                action: "Staff Login",
+                onClick: onNavigateStaffLogin || onNavigateLogin,
+                secondaryAction: onNavigateStaffSignUp ? "Activate Account" : undefined,
+                onSecondaryClick: onNavigateStaffSignUp,
               },
               {
                 role: "Campus Admins",
@@ -945,29 +975,49 @@ export default function LandingPage({
                   </p>
                 </div>
 
-                <button
-                  onClick={r.onClick}
-                  style={{
-                    padding: "10px 16px",
-                    borderRadius: "8px",
-                    border: `1px solid ${r.color}`,
-                    background: "#ffffff",
-                    color: r.color,
-                    fontWeight: 600,
-                    fontSize: "13px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "6px",
-                    transition: "all 0.2s",
-                  }}
-                  onMouseOver={(e) => (e.currentTarget.style.background = r.bg)}
-                  onMouseOut={(e) => (e.currentTarget.style.background = "#ffffff")}
-                >
-                  <span>{r.action}</span>
-                  <ArrowRight size={14} />
-                </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <button
+                    onClick={r.onClick}
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: "8px",
+                      border: `1px solid ${r.color}`,
+                      background: "#ffffff",
+                      color: r.color,
+                      fontWeight: 600,
+                      fontSize: "13px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px",
+                      transition: "all 0.2s",
+                    }}
+                    onMouseOver={(e) => (e.currentTarget.style.background = r.bg)}
+                    onMouseOut={(e) => (e.currentTarget.style.background = "#ffffff")}
+                  >
+                    <span>{r.action}</span>
+                    <ArrowRight size={14} />
+                  </button>
+
+                  {"secondaryAction" in r && r.secondaryAction && (
+                    <button
+                      onClick={r.onSecondaryClick}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#b45309",
+                        fontWeight: 600,
+                        fontSize: "12px",
+                        cursor: "pointer",
+                        padding: "4px 0",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      {r.secondaryAction} →
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -1048,6 +1098,26 @@ export default function LandingPage({
                   Hostel Organization Onboarding
                 </button>
               </li>
+              {onNavigateStaffLogin && (
+                <li>
+                  <button
+                    onClick={onNavigateStaffLogin}
+                    style={{ background: "none", border: "none", color: "#fbbf24", cursor: "pointer", padding: 0 }}
+                  >
+                    Maintenance Staff Portal
+                  </button>
+                </li>
+              )}
+              {onNavigateStaffSignUp && (
+                <li>
+                  <button
+                    onClick={onNavigateStaffSignUp}
+                    style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: 0 }}
+                  >
+                    Staff Account Activation
+                  </button>
+                </li>
+              )}
             </ul>
           </div>
 

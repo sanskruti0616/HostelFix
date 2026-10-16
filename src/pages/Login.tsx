@@ -24,6 +24,8 @@ interface LoginProps {
   onLoginSuccess: (user: User) => void
   onNavigateHome?: () => void
   onNavigateSignUp?: () => void
+  onNavigateStaffLogin?: () => void
+  onNavigateStaffSignUp?: () => void
 }
 
 interface DemoRoleCard {
@@ -69,6 +71,8 @@ export default function Login({
   onLoginSuccess,
   onNavigateHome,
   onNavigateSignUp,
+  onNavigateStaffLogin,
+  onNavigateStaffSignUp,
 }: LoginProps) {
   // Manual credentials form state
   const [identifier, setIdentifier] = useState("")
@@ -342,6 +346,70 @@ export default function Login({
               )}
             </p>
           </div>
+
+          {/* Maintenance Staff Callout Banner */}
+          {(onNavigateStaffLogin || onNavigateStaffSignUp) && (
+            <div
+              style={{
+                marginBottom: "18px",
+                padding: "11px 14px",
+                borderRadius: "10px",
+                background: "#fffbeb",
+                border: "1px solid #fde68a",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "10px",
+                fontSize: "12.5px",
+                color: "#92400e",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Wrench size={16} color="#d97706" style={{ flexShrink: 0 }} />
+                <span>
+                  <strong>Maintenance Staff?</strong> Use the dedicated technician portal.
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                {onNavigateStaffLogin && (
+                  <button
+                    type="button"
+                    onClick={onNavigateStaffLogin}
+                    style={{
+                      background: "#d97706",
+                      color: "white",
+                      border: "none",
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Staff Portal
+                  </button>
+                )}
+                {onNavigateStaffSignUp && (
+                  <button
+                    type="button"
+                    onClick={onNavigateStaffSignUp}
+                    style={{
+                      background: "white",
+                      color: "#b45309",
+                      border: "1px solid #fcd34d",
+                      padding: "4px 8px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Activate
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Feedback Alerts */}
           {errorMessage && (

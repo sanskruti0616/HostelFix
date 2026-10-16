@@ -24,6 +24,7 @@ const USER_STATUS = {
   ACTIVE: "active",
   PENDING_AFFILIATION: "pending_affiliation",
   PENDING_APPROVAL: "pending_approval",
+  PENDING_ACTIVATION: "pending_activation",
   SUSPENDED: "suspended",
 }
 

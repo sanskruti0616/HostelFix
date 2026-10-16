@@ -11,13 +11,26 @@ import RaiseComplaint from "./pages/RaiseComplaint"
 import ComplaintHistory from "./pages/ComplaintHistory"
 import ComplaintDetails from "./pages/ComplaintDetails"
 
+import StaffLogin from "./pages/StaffLogin"
+import StaffSignUp from "./pages/StaffSignUp"
+
 import type { Complaint, ComplaintStatus, User } from "./types"
 import { api, getStoredToken, getStoredUser, clearStoredAuth } from "./services/api"
 import { getSocket, updateSocketAuth, disconnectSocket } from "./services/socket"
 import { CheckCircle, AlertCircle, Info, X } from "lucide-react"
 
 type StudentPage = "dashboard" | "raise-complaint" | "history" | "details"
-type UnauthView = "landing" | "login" | "signup"
+type UnauthView = "landing" | "login" | "signup" | "staff-login" | "staff-signup"
+
+const getInitialUnauthView = (): UnauthView => {
+  if (typeof window === "undefined") return "landing"
+  const path = window.location.pathname.toLowerCase()
+  if (path === "/staff/login") return "staff-login"
+  if (path === "/staff/signup" || path === "/staff/activate") return "staff-signup"
+  if (path === "/login") return "login"
+  if (path === "/signup") return "signup"
+  return "landing"
+}
 
 interface ToastNotification {
   id: string
@@ -28,7 +41,7 @@ interface ToastNotification {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(getStoredUser())
-  const [unauthView, setUnauthView] = useState<UnauthView>("landing")
+  const [unauthView, setUnauthView] = useState<UnauthView>(getInitialUnauthView)
   const [signUpInitialTab, setSignUpInitialTab] = useState<"student" | "organization">("student")
   const [studentPage, setStudentPage] = useState<StudentPage>("dashboard")
   const [complaintList, setComplaintList] = useState<Complaint[]>([])
@@ -136,12 +149,42 @@ export default function App() {
     }
   }, [currentUser, selectedComplaint, addToast])
 
+  // Browser history navigation synchronization
+  const navigateToUnauthView = useCallback((view: UnauthView, urlPath?: string) => {
+    setUnauthView(view)
+    const targetPath =
+      urlPath ||
+      (view === "staff-login"
+        ? "/staff/login"
+        : view === "staff-signup"
+        ? "/staff/signup"
+        : view === "login"
+        ? "/login"
+        : view === "signup"
+        ? "/signup"
+        : "/")
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({ view }, "", targetPath)
+    }
+  }, [])
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setUnauthView(getInitialUnauthView())
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
   // 4. Handle Login Success
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user)
     setSelectedComplaint(null)
     setStudentPage("dashboard")
     updateSocketAuth()
+    if (window.location.pathname !== "/") {
+      window.history.pushState({}, "", "/")
+    }
   }
 
   // 5. Handle Logout
@@ -152,7 +195,7 @@ export default function App() {
     setComplaintList([])
     setSelectedComplaint(null)
     setStudentPage("dashboard")
-    setUnauthView("landing")
+    navigateToUnauthView("landing", "/")
   }
 
   // 6. Handle Complaint Submission
@@ -211,17 +254,41 @@ export default function App() {
     )
   }
 
-  // Unauthenticated routing: Landing Page, Login, or Sign Up
+  // Unauthenticated routing: Landing Page, Login, Sign Up, Staff Login, or Staff Sign Up
   if (!currentUser) {
+    if (unauthView === "staff-login") {
+      return (
+        <StaffLogin
+          onLoginSuccess={handleLoginSuccess}
+          onNavigateHome={() => navigateToUnauthView("landing", "/")}
+          onNavigateStaffSignUp={() => navigateToUnauthView("staff-signup", "/staff/signup")}
+          onNavigateMainLogin={() => navigateToUnauthView("login", "/login")}
+        />
+      )
+    }
+
+    if (unauthView === "staff-signup") {
+      return (
+        <StaffSignUp
+          onSignUpSuccess={handleLoginSuccess}
+          onNavigateHome={() => navigateToUnauthView("landing", "/")}
+          onNavigateStaffLogin={() => navigateToUnauthView("staff-login", "/staff/login")}
+          onNavigateMainLogin={() => navigateToUnauthView("login", "/login")}
+        />
+      )
+    }
+
     if (unauthView === "login") {
       return (
         <Login
           onLoginSuccess={handleLoginSuccess}
-          onNavigateHome={() => setUnauthView("landing")}
+          onNavigateHome={() => navigateToUnauthView("landing", "/")}
           onNavigateSignUp={() => {
             setSignUpInitialTab("student")
-            setUnauthView("signup")
+            navigateToUnauthView("signup", "/signup")
           }}
+          onNavigateStaffLogin={() => navigateToUnauthView("staff-login", "/staff/login")}
+          onNavigateStaffSignUp={() => navigateToUnauthView("staff-signup", "/staff/signup")}
         />
       )
     }
@@ -230,8 +297,8 @@ export default function App() {
       return (
         <SignUp
           initialTab={signUpInitialTab}
-          onNavigateHome={() => setUnauthView("landing")}
-          onNavigateLogin={() => setUnauthView("login")}
+          onNavigateHome={() => navigateToUnauthView("landing", "/")}
+          onNavigateLogin={() => navigateToUnauthView("login", "/login")}
           onSignUpSuccess={handleLoginSuccess}
         />
       )
@@ -240,18 +307,21 @@ export default function App() {
     // Default unauthenticated view: Public SaaS Landing Page
     return (
       <LandingPage
-        onNavigateLogin={() => setUnauthView("login")}
+        onNavigateLogin={() => navigateToUnauthView("login", "/login")}
         onNavigateSignUp={(tab) => {
           setSignUpInitialTab(tab || "student")
-          setUnauthView("signup")
+          navigateToUnauthView("signup", "/signup")
         }}
+        onNavigateStaffLogin={() => navigateToUnauthView("staff-login", "/staff/login")}
+        onNavigateStaffSignUp={() => navigateToUnauthView("staff-signup", "/staff/signup")}
       />
     )
   }
 
-  // Pending Hostel Affiliation (e.g. Google sign-in without pre-affiliation)
+  // Pending Hostel Affiliation or Pending Approval
   if (
     currentUser.accountStatus === "pending_affiliation" ||
+    currentUser.accountStatus === "pending_approval" ||
     (currentUser.role === "student" && !currentUser.organizationId)
   ) {
     return (

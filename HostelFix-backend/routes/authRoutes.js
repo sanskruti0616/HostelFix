@@ -1,5 +1,6 @@
 const express = require("express")
 const router = express.Router()
+const crypto = require("crypto")
 const {
   authenticateGoogleUser,
   authenticateLocalUser,
@@ -8,9 +9,12 @@ const {
   registerOrganizationAndAdmin,
   registerHostel,
   registerStudent,
+  affiliateUser,
   affiliateUserWithInvitationCode,
   getPublicOrganizations,
   verifyInvitationCode,
+  generateToken,
+  verifyGoogleIdToken,
 } = require("../services/authService")
 const { authenticate } = require("../middleware/auth")
 const { authorizeRoles } = require("../middleware/rbac")
@@ -275,19 +279,32 @@ router.post("/auth/register-student", async (req, res) => {
 
 /**
  * @route   POST /api/auth/affiliate
- * @desc    Affiliate an unassigned user with an invitation code
+ * @desc    Affiliate an unassigned user via invitation code or directory
  * @access  Private
  */
 router.post("/auth/affiliate", authenticate, async (req, res) => {
   try {
-    const { invitationCode, roomNumber } = req.body
-    const result = await affiliateUserWithInvitationCode(req.user._id, invitationCode, roomNumber)
+    const { invitationCode, hostelId, organizationId, room, roomNumber, mode } = req.body
+    const result = await affiliateUser({
+      userId: req.user._id,
+      invitationCode,
+      hostelId,
+      organizationId,
+      roomNumber: roomNumber || room || "",
+      mode,
+    })
 
     res.json({
       success: true,
-      message: `Successfully joined ${result.organization.name}!`,
+      message: result.message,
       token: result.token,
       user: formatUserResponse(result.user),
+      hostel: result.hostel
+        ? {
+            id: result.hostel._id,
+            name: result.hostel.name,
+          }
+        : undefined,
     })
   } catch (error) {
     res.status(error.statusCode || 400).json({
@@ -539,6 +556,8 @@ router.get("/users/staff", authenticate, authorizeRoles(ROLES.WARDEN, ROLES.ADMI
           phone: s.phone || "",
           specialization: s.specialization || "General Maintenance",
           accountStatus: s.accountStatus,
+          activationToken: s.activationToken || "",
+          activationTokenExpires: s.activationTokenExpires || null,
           hostelId: s.hostelId,
           hostelName: s.hostelName,
           organizationId: s.organizationId,
@@ -567,14 +586,14 @@ router.post("/users/staff", authenticate, authorizeRoles(ROLES.WARDEN, ROLES.ADM
   try {
     const { name, email, phone = "", specialization, password, hostelId } = req.body
 
-    if (!name || !email || !password) {
+    if (!name || !email) {
       return res.status(400).json({
         success: false,
-        message: "Staff name, email, and initial password are required",
+        message: "Staff name and email address are required",
       })
     }
 
-    if (String(password).length < 6) {
+    if (password && String(password).length < 6) {
       return res.status(400).json({
         success: false,
         message: "Password must be at least 6 characters long",
@@ -647,7 +666,14 @@ router.post("/users/staff", authenticate, authorizeRoles(ROLES.WARDEN, ROLES.ADM
         ? specialization
         : "General Maintenance"
 
-    const passwordHash = await bcrypt.hash(String(password), 10)
+    const isDirectPassword = Boolean(password && String(password).trim().length >= 6)
+    const effectivePassword = isDirectPassword ? String(password) : crypto.randomBytes(16).toString("hex")
+    const passwordHash = await bcrypt.hash(effectivePassword, 10)
+    const accountStatus = isDirectPassword ? "active" : "pending_activation"
+
+    // Generate secure activation token and 7-day expiration
+    const activationToken = `STAFF-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
+    const activationTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 
     const staffUser = await User.create({
       authenticationProvider: "local",
@@ -657,7 +683,7 @@ router.post("/users/staff", authenticate, authorizeRoles(ROLES.WARDEN, ROLES.ADM
       username: `${name.toLowerCase().trim().replace(/[^a-z0-9]/g, "_")}_${Date.now().toString(36).slice(-4)}`,
       passwordHash,
       role: ROLES.STAFF, // STRICTLY ENFORCE STAFF ROLE
-      accountStatus: "active",
+      accountStatus,
       phone: phone ? String(phone).trim() : "",
       specialization: finalSpecialization,
       organizationId: targetOrgId,
@@ -665,11 +691,15 @@ router.post("/users/staff", authenticate, authorizeRoles(ROLES.WARDEN, ROLES.ADM
       hostelId: targetHostelId,
       hostelName: targetHostelName,
       authorizedHostels: targetHostelId ? [targetHostelId] : [],
+      activationToken,
+      activationTokenExpires,
     })
 
     res.status(201).json({
       success: true,
-      message: `Staff member "${staffUser.name}" created successfully.`,
+      message: isDirectPassword
+        ? `Staff member "${staffUser.name}" created successfully.`
+        : `Staff invitation created for "${staffUser.name}". Share the activation code with the technician.`,
       staff: {
         id: staffUser._id,
         name: staffUser.name,
@@ -683,14 +713,265 @@ router.post("/users/staff", authenticate, authorizeRoles(ROLES.WARDEN, ROLES.ADM
         organizationName: staffUser.organizationName,
         assignedCount: 0,
         completedCount: 0,
+        activationToken: staffUser.activationToken,
+        activationTokenExpires: staffUser.activationTokenExpires,
         createdAt: staffUser.createdAt,
       },
+      activationToken: staffUser.activationToken,
+      activationTokenExpires: staffUser.activationTokenExpires,
     })
   } catch (error) {
     console.error("[Users] Staff creation error:", error.message)
     res.status(500).json({
       success: false,
       message: "Failed to create staff member: " + error.message,
+    })
+  }
+})
+
+/**
+ * @route   GET /api/auth/staff/verify-token
+ * @desc    Validate a staff invitation / activation token
+ * @access  Public
+ */
+router.get("/auth/staff/verify-token", async (req, res) => {
+  try {
+    const { token } = req.query
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: "Activation token is required",
+      })
+    }
+
+    const cleanToken = String(token).trim().toUpperCase()
+    const staffUser = await User.findOne({
+      activationToken: cleanToken,
+      role: ROLES.STAFF,
+    })
+
+    if (!staffUser) {
+      return res.status(404).json({
+        success: false,
+        valid: false,
+        message: "Invalid or expired activation token. Please request a new invitation from your hostel warden.",
+      })
+    }
+
+    if (staffUser.activationTokenExpires && new Date() > staffUser.activationTokenExpires) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: "This activation token has expired. Please contact your hostel warden for a renewed invitation.",
+      })
+    }
+
+    if (staffUser.accountStatus === "suspended") {
+      return res.status(403).json({
+        success: false,
+        valid: false,
+        message: "This staff account is currently suspended.",
+      })
+    }
+
+    res.json({
+      success: true,
+      valid: true,
+      staff: {
+        id: staffUser._id,
+        name: staffUser.name,
+        email: staffUser.email,
+        phone: staffUser.phone,
+        specialization: staffUser.specialization,
+        hostelName: staffUser.hostelName,
+        organizationName: staffUser.organizationName,
+        accountStatus: staffUser.accountStatus,
+      },
+    })
+  } catch (error) {
+    console.error("[Auth] Staff token verification error:", error.message)
+    res.status(500).json({
+      success: false,
+      valid: false,
+      message: "Failed to verify activation token",
+    })
+  }
+})
+
+/**
+ * @route   POST /api/auth/staff/activate
+ * @desc    Staff sets password and activates their account
+ * @access  Public
+ */
+router.post("/auth/staff/activate", async (req, res) => {
+  try {
+    const { token, password } = req.body
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Activation token is required",
+      })
+    }
+    if (!password || String(password).length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters long",
+      })
+    }
+
+    const cleanToken = String(token).trim().toUpperCase()
+    const staffUser = await User.findOne({
+      activationToken: cleanToken,
+      role: ROLES.STAFF,
+    })
+
+    if (!staffUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Invalid or already-used activation token. Please check your invitation details or log in.",
+      })
+    }
+
+    if (staffUser.activationTokenExpires && new Date() > staffUser.activationTokenExpires) {
+      return res.status(400).json({
+        success: false,
+        message: "This activation token has expired. Please ask your warden to regenerate it.",
+      })
+    }
+
+    if (staffUser.accountStatus === "suspended") {
+      return res.status(403).json({
+        success: false,
+        message: "This staff account is suspended. Please contact the hostel administration.",
+      })
+    }
+
+    const passwordHash = await bcrypt.hash(String(password), 10)
+    staffUser.passwordHash = passwordHash
+    staffUser.accountStatus = "active"
+    staffUser.activationToken = ""
+    staffUser.activationTokenExpires = null
+    staffUser.lastLoginAt = new Date()
+    await staffUser.save()
+
+    const jwtToken = generateToken(staffUser)
+
+    res.json({
+      success: true,
+      message: `Welcome, ${staffUser.name}! Your maintenance staff account has been activated.`,
+      token: jwtToken,
+      user: formatUserResponse(staffUser),
+    })
+  } catch (error) {
+    console.error("[Auth] Staff activation error:", error.message)
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to activate staff account",
+    })
+  }
+})
+
+/**
+ * @route   POST /api/auth/staff/google
+ * @desc    Google Sign-In or Activation for Maintenance Staff
+ * @access  Public
+ */
+router.post("/auth/staff/google", async (req, res) => {
+  try {
+    const { idToken, token: activationToken } = req.body
+    if (!idToken) {
+      return res.status(400).json({
+        success: false,
+        message: "Google idToken is required",
+      })
+    }
+
+    const profile = await verifyGoogleIdToken(idToken)
+    let staffUser = null
+
+    // Case 1: Activation with token
+    if (activationToken) {
+      const cleanToken = String(activationToken).trim().toUpperCase()
+      staffUser = await User.findOne({
+        activationToken: cleanToken,
+        role: ROLES.STAFF,
+      })
+
+      if (!staffUser) {
+        return res.status(404).json({
+          success: false,
+          message: "Invalid or already-used activation token.",
+        })
+      }
+
+      if (staffUser.activationTokenExpires && new Date() > staffUser.activationTokenExpires) {
+        return res.status(400).json({
+          success: false,
+          message: "Activation token has expired. Please contact your warden.",
+        })
+      }
+
+      staffUser.authenticationProvider = "google"
+      staffUser.providerUserId = profile.providerUserId
+      if (profile.profileImage && !staffUser.profileImage) {
+        staffUser.profileImage = profile.profileImage
+      }
+      staffUser.accountStatus = "active"
+      staffUser.activationToken = ""
+      staffUser.activationTokenExpires = null
+      staffUser.lastLoginAt = new Date()
+      await staffUser.save()
+    } else {
+      // Case 2: Sign-in by existing staff member
+      staffUser = await User.findOne({
+        $or: [
+          { providerUserId: profile.providerUserId, authenticationProvider: "google" },
+          { email: profile.email },
+        ],
+        role: ROLES.STAFF,
+      })
+
+      if (!staffUser) {
+        return res.status(403).json({
+          success: false,
+          message: "No authorized Maintenance Staff account found for this Google email. You must be invited by your Hostel Warden.",
+        })
+      }
+
+      if (staffUser.accountStatus === "suspended") {
+        return res.status(403).json({
+          success: false,
+          message: "This staff account is suspended. Please contact the hostel administration.",
+        })
+      }
+
+      if (staffUser.accountStatus === "pending_activation") {
+        staffUser.accountStatus = "active"
+        staffUser.activationToken = ""
+        staffUser.activationTokenExpires = null
+      }
+
+      if (!staffUser.providerUserId) {
+        staffUser.providerUserId = profile.providerUserId
+      }
+      staffUser.lastLoginAt = new Date()
+      await staffUser.save()
+    }
+
+    const jwtToken = generateToken(staffUser)
+
+    res.json({
+      success: true,
+      message: `Signed in as Maintenance Staff: ${staffUser.name}`,
+      token: jwtToken,
+      user: formatUserResponse(staffUser),
+    })
+  } catch (error) {
+    console.error("[Auth] Staff Google auth error:", error.message)
+    res.status(error.statusCode || 401).json({
+      success: false,
+      message: error.message || "Staff Google authentication failed",
     })
   }
 })
@@ -763,6 +1044,63 @@ router.patch("/users/staff/:id/status", authenticate, authorizeRoles(ROLES.WARDE
     res.status(500).json({
       success: false,
       message: "Failed to update staff status",
+    })
+  }
+})
+
+/**
+ * @route   PATCH /api/users/students/:id/status
+ * @desc    Approve or update student affiliation status (Warden & Admin)
+ * @access  Private (Warden, Admin)
+ */
+router.patch("/users/students/:id/status", authenticate, authorizeRoles(ROLES.WARDEN, ROLES.ADMIN), async (req, res) => {
+  try {
+    const { status } = req.body
+    if (!status || !["active", "suspended", "pending_approval"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid status ('active', 'suspended', 'pending_approval') is required",
+      })
+    }
+
+    const student = await User.findById(req.params.id)
+    if (!student || student.role !== ROLES.STUDENT) {
+      return res.status(404).json({
+        success: false,
+        message: "Student account not found",
+      })
+    }
+
+    if (req.user.role === ROLES.WARDEN) {
+      const sameOrg =
+        req.user.organizationId &&
+        student.organizationId &&
+        req.user.organizationId.toString() === student.organizationId.toString()
+      const sameHostel =
+        req.user.hostelId &&
+        student.hostelId &&
+        req.user.hostelId.toString() === student.hostelId.toString()
+
+      if (!sameOrg && !sameHostel) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized: You can only manage students in your assigned hostel.",
+        })
+      }
+    }
+
+    student.accountStatus = status
+    await student.save()
+
+    res.json({
+      success: true,
+      message: `Student account marked as ${status}`,
+      user: formatUserResponse(student),
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update student status",
     })
   }
 })

@@ -70,6 +70,22 @@ router.post("/uploads", authenticate, upload.array("images", 5), async (req, res
   }
 })
 
+function buildComplaintQuery(param) {
+  if (!param) return null
+  const clean = String(param).trim()
+  if (/^[0-9a-fA-F]{24}$/.test(clean)) {
+    return { _id: clean }
+  }
+  const numOnly = clean.replace(/^HF-/, "")
+  return {
+    $or: [
+      { complaintNumber: clean },
+      { complaintNumber: `HF-${numOnly}` },
+      { complaintNumber: numOnly },
+    ],
+  }
+}
+
 /**
  * @route   POST /api/complaints/:id/resolution-evidence
  * @desc    Maintenance technician uploads resolution photograph(s)
@@ -83,7 +99,10 @@ router.post(
   async (req, res) => {
     try {
       const param = req.params.id
-      const query = param.startsWith("HF-") ? { complaintNumber: param } : { _id: param }
+      const query = buildComplaintQuery(param)
+      if (!query) {
+        return res.status(400).json({ success: false, message: "Invalid complaint identifier" })
+      }
 
       const complaint = await Complaint.findOne(query)
       if (!complaint) {

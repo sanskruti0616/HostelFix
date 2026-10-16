@@ -86,6 +86,13 @@ export default function WardenDashboard({
     specialization: "General Maintenance",
     password: "",
   })
+  const [createdStaffActivation, setCreatedStaffActivation] = useState<{
+    token: string
+    link: string
+    staffName: string
+    email: string
+  } | null>(null)
+  const [copiedLink, setCopiedLink] = useState(false)
 
   // Edit staff modal state
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null)
@@ -214,32 +221,45 @@ export default function WardenDashboard({
     e.preventDefault()
     setAddStaffError(null)
     setAddStaffSuccess(null)
+    setCreatedStaffActivation(null)
+    setCopiedLink(false)
     setAddStaffLoading(true)
 
     try {
-      await api.staff.create({
+      const res = await api.staff.create({
         name: newStaffForm.name.trim(),
         email: newStaffForm.email.trim(),
         phone: newStaffForm.phone.trim(),
         specialization: newStaffForm.specialization,
-        password: newStaffForm.password,
+        password: newStaffForm.password ? newStaffForm.password : undefined,
         hostelId: currentUser.hostelId,
       })
 
-      setAddStaffSuccess(`Technician ${newStaffForm.name} registered successfully!`)
-      setNewStaffForm({
-        name: "",
-        email: "",
-        phone: "",
-        specialization: "General Maintenance",
-        password: "",
-      })
       await fetchStaff()
 
-      setTimeout(() => {
-        setIsAddStaffOpen(false)
-        setAddStaffSuccess(null)
-      }, 1500)
+      if (res.activationToken) {
+        const activationLink = `${window.location.origin}/staff/signup?token=${res.activationToken}`
+        setCreatedStaffActivation({
+          token: res.activationToken,
+          link: activationLink,
+          staffName: newStaffForm.name.trim(),
+          email: newStaffForm.email.trim(),
+        })
+        setAddStaffSuccess(`Staff invitation created! Share the activation link with ${newStaffForm.name}.`)
+      } else {
+        setAddStaffSuccess(`Technician ${newStaffForm.name} registered successfully!`)
+        setTimeout(() => {
+          setIsAddStaffOpen(false)
+          setAddStaffSuccess(null)
+          setNewStaffForm({
+            name: "",
+            email: "",
+            phone: "",
+            specialization: "General Maintenance",
+            password: "",
+          })
+        }, 1500)
+      }
     } catch (err: any) {
       setAddStaffError(err.message || "Failed to create staff member")
     } finally {
@@ -1054,8 +1074,18 @@ export default function WardenDashboard({
                             borderRadius: "12px",
                             fontSize: "12px",
                             fontWeight: 600,
-                            background: staff.accountStatus === "active" ? "#dcfce7" : "#fee2e2",
-                            color: staff.accountStatus === "active" ? "#166534" : "#991b1b",
+                            background:
+                              staff.accountStatus === "active"
+                                ? "#dcfce7"
+                                : staff.accountStatus === "pending_activation"
+                                ? "#fef3c7"
+                                : "#fee2e2",
+                            color:
+                              staff.accountStatus === "active"
+                                ? "#166534"
+                                : staff.accountStatus === "pending_activation"
+                                ? "#92400e"
+                                : "#991b1b",
                           }}
                         >
                           <span
@@ -1063,10 +1093,19 @@ export default function WardenDashboard({
                               width: "6px",
                               height: "6px",
                               borderRadius: "50%",
-                              background: staff.accountStatus === "active" ? "#16a34a" : "#dc2626",
+                              background:
+                                staff.accountStatus === "active"
+                                  ? "#16a34a"
+                                  : staff.accountStatus === "pending_activation"
+                                  ? "#d97706"
+                                  : "#dc2626",
                             }}
                           />
-                          {staff.accountStatus === "active" ? "Active" : "Suspended"}
+                          {staff.accountStatus === "active"
+                            ? "Active"
+                            : staff.accountStatus === "pending_activation"
+                            ? "Pending Activation"
+                            : "Suspended"}
                         </span>
                       </div>
 
@@ -1094,6 +1133,44 @@ export default function WardenDashboard({
                             {staff.phone || "No phone added"}
                           </span>
                         </div>
+
+                        {staff.accountStatus === "pending_activation" && staff.activationToken && (
+                          <div
+                            style={{
+                              marginTop: "6px",
+                              paddingTop: "8px",
+                              borderTop: "1px dashed #e2e8f0",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: "6px",
+                            }}
+                          >
+                            <span style={{ fontSize: "11px", color: "#92400e", fontWeight: 600 }}>
+                              Code: <code>{staff.activationToken}</code>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const link = `${window.location.origin}/staff/signup?token=${staff.activationToken}`
+                                navigator.clipboard.writeText(link)
+                                alert(`Activation link for ${staff.name} copied to clipboard!`)
+                              }}
+                              style={{
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                background: "#d97706",
+                                color: "white",
+                                border: "none",
+                                fontSize: "11px",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Copy Link
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Task Workload Counters */}
@@ -1338,7 +1415,7 @@ export default function WardenDashboard({
                 </div>
               )}
 
-              {addStaffSuccess && (
+              {addStaffSuccess && !createdStaffActivation && (
                 <div
                   style={{
                     padding: "10px 14px",
@@ -1357,173 +1434,324 @@ export default function WardenDashboard({
                 </div>
               )}
 
-              <form onSubmit={handleCreateStaff} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
-                    Full Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Ramesh Kumar"
-                    value={newStaffForm.name}
-                    onChange={(e) => setNewStaffForm({ ...newStaffForm, name: e.target.value })}
+              {createdStaffActivation ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  <div
                     style={{
-                      width: "100%",
-                      padding: "9px 12px",
-                      borderRadius: "8px",
-                      border: "1px solid #cbd5e1",
-                      fontSize: "14px",
+                      padding: "16px",
+                      background: "#f0fdf4",
+                      border: "1.5px solid #86efac",
+                      borderRadius: "12px",
                     }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
-                    Email Address (Login Username) *
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="e.g. ramesh.maintenance@hostel.com"
-                    value={newStaffForm.email}
-                    onChange={(e) => setNewStaffForm({ ...newStaffForm, email: e.target.value })}
-                    style={{
-                      width: "100%",
-                      padding: "9px 12px",
-                      borderRadius: "8px",
-                      border: "1px solid #cbd5e1",
-                      fontSize: "14px",
-                    }}
-                  />
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
-                      Phone Number
-                    </label>
-                    <input
-                      type="tel"
-                      placeholder="e.g. +91 9876543210"
-                      value={newStaffForm.phone}
-                      onChange={(e) => setNewStaffForm({ ...newStaffForm, phone: e.target.value })}
+                  >
+                    <div
                       style={{
-                        width: "100%",
-                        padding: "9px 12px",
-                        borderRadius: "8px",
-                        border: "1px solid #cbd5e1",
-                        fontSize: "14px",
-                      }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
-                      Specialization *
-                    </label>
-                    <select
-                      value={newStaffForm.specialization}
-                      onChange={(e) => setNewStaffForm({ ...newStaffForm, specialization: e.target.value })}
-                      style={{
-                        width: "100%",
-                        padding: "9px 12px",
-                        borderRadius: "8px",
-                        border: "1px solid #cbd5e1",
-                        fontSize: "14px",
-                        background: "white",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginBottom: "10px",
+                        color: "#166534",
+                        fontWeight: 700,
+                        fontSize: "15px",
                       }}
                     >
-                      {SPECIALIZATION_OPTIONS.map((spec) => (
-                        <option key={spec} value={spec}>
-                          {spec}
-                        </option>
-                      ))}
-                    </select>
+                      <CheckCircle2 size={20} />
+                      <span>Technician Invitation Generated!</span>
+                    </div>
+
+                    <p style={{ margin: "0 0 14px", fontSize: "13px", color: "#334155", lineHeight: 1.5 }}>
+                      Staff account created for <strong>{createdStaffActivation.staffName}</strong> (<code>{createdStaffActivation.email}</code>). Share the activation link or code below so they can set their password and enter the portal.
+                    </p>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      <div>
+                        <span style={{ fontSize: "11px", color: "#166534", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                          ACTIVATION CODE
+                        </span>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <input
+                            type="text"
+                            readOnly
+                            value={createdStaffActivation.token}
+                            style={{
+                              flex: 1,
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #cbd5e1",
+                              background: "white",
+                              fontWeight: 700,
+                              fontSize: "15px",
+                              letterSpacing: "1px",
+                              color: "#0f172a",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(createdStaffActivation.token)
+                              alert("Activation code copied to clipboard!")
+                            }}
+                            style={{
+                              padding: "8px 14px",
+                              borderRadius: "6px",
+                              background: "#ffffff",
+                              border: "1px solid #cbd5e1",
+                              fontWeight: 600,
+                              fontSize: "12px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Copy Code
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <span style={{ fontSize: "11px", color: "#166534", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                          ACTIVATION LINK (Valid for 7 Days)
+                        </span>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <input
+                            type="text"
+                            readOnly
+                            value={createdStaffActivation.link}
+                            style={{
+                              flex: 1,
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #cbd5e1",
+                              background: "white",
+                              fontSize: "12px",
+                              color: "#475569",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(createdStaffActivation.link)
+                              setCopiedLink(true)
+                              setTimeout(() => setCopiedLink(false), 2500)
+                            }}
+                            style={{
+                              padding: "8px 14px",
+                              borderRadius: "6px",
+                              background: copiedLink ? "#16a34a" : "#4f46e5",
+                              color: "white",
+                              border: "none",
+                              fontWeight: 600,
+                              fontSize: "12px",
+                              cursor: "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {copiedLink ? "Copied!" : "Copy Link"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddStaffOpen(false)
+                        setCreatedStaffActivation(null)
+                        setAddStaffSuccess(null)
+                        setNewStaffForm({
+                          name: "",
+                          email: "",
+                          phone: "",
+                          specialization: "General Maintenance",
+                          password: "",
+                        })
+                      }}
+                      style={{
+                        padding: "9px 24px",
+                        background: "#4f46e5",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "8px",
+                        fontWeight: 600,
+                        fontSize: "14px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Done
+                    </button>
                   </div>
                 </div>
-
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
-                    Initial Password *
-                  </label>
-                  <div style={{ position: "relative" }}>
-                    <KeyRound
-                      size={16}
-                      style={{ position: "absolute", left: "12px", top: "11px", color: "#94a3b8" }}
-                    />
+              ) : (
+                <form onSubmit={handleCreateStaff} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
+                      Full Name *
+                    </label>
                     <input
-                      type="password"
+                      type="text"
                       required
-                      minLength={6}
-                      placeholder="Minimum 6 characters"
-                      value={newStaffForm.password}
-                      onChange={(e) => setNewStaffForm({ ...newStaffForm, password: e.target.value })}
+                      placeholder="e.g. Ramesh Kumar"
+                      value={newStaffForm.name}
+                      onChange={(e) => setNewStaffForm({ ...newStaffForm, name: e.target.value })}
                       style={{
                         width: "100%",
-                        padding: "9px 12px 9px 36px",
+                        padding: "9px 12px",
                         borderRadius: "8px",
                         border: "1px solid #cbd5e1",
                         fontSize: "14px",
                       }}
                     />
                   </div>
-                </div>
 
-                <div
-                  style={{
-                    background: "#f8fafc",
-                    padding: "10px 14px",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                    color: "#64748b",
-                    marginTop: "4px",
-                  }}
-                >
-                  🔒 <strong>Staff Security:</strong> The technician will be registered exclusively for{" "}
-                  <strong>{currentUser.hostel || "your hostel"}</strong> with role <code>staff</code>. They can log in immediately with their email and password.
-                </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
+                      Email Address (Login Username) *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="e.g. ramesh.maintenance@hostel.com"
+                      value={newStaffForm.email}
+                      onChange={(e) => setNewStaffForm({ ...newStaffForm, email: e.target.value })}
+                      style={{
+                        width: "100%",
+                        padding: "9px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "14px",
+                      }}
+                    />
+                  </div>
 
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>
-                  <button
-                    type="button"
-                    disabled={addStaffLoading}
-                    onClick={() => setIsAddStaffOpen(false)}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
+                        Phone Number
+                      </label>
+                      <input
+                        type="tel"
+                        placeholder="e.g. +91 9876543210"
+                        value={newStaffForm.phone}
+                        onChange={(e) => setNewStaffForm({ ...newStaffForm, phone: e.target.value })}
+                        style={{
+                          width: "100%",
+                          padding: "9px 12px",
+                          borderRadius: "8px",
+                          border: "1px solid #cbd5e1",
+                          fontSize: "14px",
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
+                        Specialization *
+                      </label>
+                      <select
+                        value={newStaffForm.specialization}
+                        onChange={(e) => setNewStaffForm({ ...newStaffForm, specialization: e.target.value })}
+                        style={{
+                          width: "100%",
+                          padding: "9px 12px",
+                          borderRadius: "8px",
+                          border: "1px solid #cbd5e1",
+                          fontSize: "14px",
+                          background: "white",
+                        }}
+                      >
+                        {SPECIALIZATION_OPTIONS.map((spec) => (
+                          <option key={spec} value={spec}>
+                            {spec}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
+                      Initial Password (Optional)
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <KeyRound
+                        size={16}
+                        style={{ position: "absolute", left: "12px", top: "11px", color: "#94a3b8" }}
+                      />
+                      <input
+                        type="password"
+                        minLength={newStaffForm.password ? 6 : undefined}
+                        placeholder="Leave blank to generate an invitation link"
+                        value={newStaffForm.password}
+                        onChange={(e) => setNewStaffForm({ ...newStaffForm, password: e.target.value })}
+                        style={{
+                          width: "100%",
+                          padding: "9px 12px 9px 36px",
+                          borderRadius: "8px",
+                          border: "1px solid #cbd5e1",
+                          fontSize: "14px",
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontSize: "12px", color: "#64748b", marginTop: "4px", display: "block" }}>
+                      💡 If left blank, a secure 7-day activation link will be generated for the technician to set their own password.
+                    </span>
+                  </div>
+
+                  <div
                     style={{
-                      padding: "9px 16px",
-                      background: "white",
-                      border: "1px solid #cbd5e1",
+                      background: "#f8fafc",
+                      padding: "10px 14px",
                       borderRadius: "8px",
-                      fontWeight: 600,
-                      fontSize: "14px",
-                      color: "#475569",
-                      cursor: "pointer",
+                      fontSize: "12px",
+                      color: "#64748b",
+                      marginTop: "4px",
                     }}
                   >
-                    Cancel
-                  </button>
+                    🔒 <strong>Staff Security:</strong> The technician will be registered exclusively for{" "}
+                    <strong>{currentUser.hostel || "your hostel"}</strong> with role <code>staff</code>.
+                  </div>
 
-                  <button
-                    type="submit"
-                    disabled={addStaffLoading}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      padding: "9px 20px",
-                      background: "#4f46e5",
-                      border: "none",
-                      borderRadius: "8px",
-                      fontWeight: 600,
-                      fontSize: "14px",
-                      color: "white",
-                      cursor: addStaffLoading ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {addStaffLoading ? "Registering..." : "Create Staff Account"}
-                  </button>
-                </div>
-              </form>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>
+                    <button
+                      type="button"
+                      disabled={addStaffLoading}
+                      onClick={() => setIsAddStaffOpen(false)}
+                      style={{
+                        padding: "9px 16px",
+                        background: "white",
+                        border: "1px solid #cbd5e1",
+                        borderRadius: "8px",
+                        fontWeight: 600,
+                        fontSize: "14px",
+                        color: "#475569",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={addStaffLoading}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "9px 20px",
+                        background: "#4f46e5",
+                        border: "none",
+                        borderRadius: "8px",
+                        fontWeight: 600,
+                        fontSize: "14px",
+                        color: "white",
+                        cursor: addStaffLoading ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {addStaffLoading ? "Processing..." : newStaffForm.password ? "Create Staff Account" : "Generate Staff Invitation"}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         )}
